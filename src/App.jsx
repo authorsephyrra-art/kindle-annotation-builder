@@ -297,7 +297,10 @@ function parseSpec(specText, genreKey = "regency") {
     const rawLine = lines[i];
     const line = rawLine.trim();
 
-    if (!line) continue;
+    if (!line) {
+      if (mode === "passage") passageLines.push("");
+      continue;
+    }
     if (line === firstNonEmpty.trim()) continue;
 
     const copyMatch = rawLine.match(/^\s*Copy this text:\s*(.*)$/i);
