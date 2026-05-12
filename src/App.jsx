@@ -147,6 +147,14 @@ function normalizeText(value) {
     .trim();
 }
 
+function normalizeInlineText(value) {
+  return (value || "")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[ 	]+/g, " ")
+    .trim();
+}
+
 function cleanLines(value) {
   return (value || "")
     .split("\n")
@@ -435,53 +443,67 @@ function findRanges(text, items, type) {
 }
 
 function buildCharacterMap(passage, highlightItems, underlineItems) {
-  const clean = normalizeText(passage);
-  const ranges = [...findRanges(clean, highlightItems, "highlight"), ...findRanges(clean, underlineItems, "underline")];
+  const paragraphs = (passage || "")
+    .split(/\n\s*\n/)
+    .map((part) => normalizeInlineText(part))
+    .filter(Boolean);
 
-  return [...clean].map((ch, index) => {
-    const underline = ranges.find((range) => range.type === "underline" && index >= range.start && index < range.end);
-    const highlight = ranges.find((range) => range.type === "highlight" && index >= range.start && index < range.end);
-    const range = underline || highlight;
+  return paragraphs.map((paragraph) => {
+    const ranges = [...findRanges(paragraph, highlightItems, "highlight"), ...findRanges(paragraph, underlineItems, "underline")];
 
-    return { ch, type: range?.type || null, phrase: range?.phrase || null, color: range?.color || null, rangeId: range?.id || null };
+    return [...paragraph].map((ch, index) => {
+      const underline = ranges.find((range) => range.type === "underline" && index >= range.start && index < range.end);
+      const highlight = ranges.find((range) => range.type === "highlight" && index >= range.start && index < range.end);
+      const range = underline || highlight;
+
+      return { ch, type: range?.type || null, phrase: range?.phrase || null, color: range?.color || null, rangeId: range?.id || null };
+    });
   });
 }
 
-function wrapLines(ctx, chars, maxWidth) {
+function wrapLines(ctx, paragraphMaps, maxWidth) {
   const lines = [];
-  let line = [];
-  let lineText = "";
 
-  const pushLine = () => {
-    while (line.length && line[line.length - 1].ch === " ") line.pop();
-    if (line.length) lines.push(line);
-    line = [];
-    lineText = "";
-  };
+  paragraphMaps.forEach((chars, paragraphIndex) => {
+    let line = [];
+    let lineText = "";
 
-  chars.forEach((item) => {
-    const test = lineText + item.ch;
+    const pushLine = () => {
+      while (line.length && line[line.length - 1].ch === " ") line.pop();
+      if (line.length) lines.push(line);
+      line = [];
+      lineText = "";
+    };
 
-    if (ctx.measureText(test).width > maxWidth && line.length > 0 && item.ch !== " ") {
-      const lastSpace = line.map((x) => x.ch).lastIndexOf(" ");
-      if (lastSpace > 8) {
-        const keep = line.slice(0, lastSpace);
-        const move = line.slice(lastSpace + 1);
-        lines.push(keep);
-        line = move;
-        lineText = move.map((x) => x.ch).join("");
-      } else {
-        pushLine();
+    chars.forEach((item) => {
+      const test = lineText + item.ch;
+
+      if (ctx.measureText(test).width > maxWidth && line.length > 0 && item.ch !== " ") {
+        const lastSpace = line.map((x) => x.ch).lastIndexOf(" ");
+        if (lastSpace > 8) {
+          const keep = line.slice(0, lastSpace);
+          const move = line.slice(lastSpace + 1);
+          lines.push(keep);
+          line = move;
+          lineText = move.map((x) => x.ch).join("");
+        } else {
+          pushLine();
+        }
       }
-    }
 
-    if (!(line.length === 0 && item.ch === " ")) {
-      line.push(item);
-      lineText += item.ch;
+      if (!(line.length === 0 && item.ch === " ")) {
+        line.push(item);
+        lineText += item.ch;
+      }
+    });
+
+    pushLine();
+
+    if (paragraphIndex < paragraphMaps.length - 1) {
+      lines.push({ paragraphBreak: true });
     }
   });
 
-  pushLine();
   return lines;
 }
 
@@ -641,29 +663,37 @@ function measureDocument(doc) {
   const layout = layoutFor(format, doc.lineGap);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
-  const characters = buildCharacterMap(doc.passage, doc.highlights, doc.underlines);
+  const paragraphMaps = buildCharacterMap(doc.passage, doc.highlights, doc.underlines);
 
   ctx.font = `${layout.fontSize}px Georgia, serif`;
-  const lines = wrapLines(ctx, characters, layout.textW);
+  const lines = wrapLines(ctx, paragraphMaps, layout.textW);
   const hitBoxes = [];
 
   let y = layout.textY;
-  lines.forEach((line, lineIndex) => {
+  let visualLineIndex = 0;
+
+  lines.forEach((line) => {
+    if (line.paragraphBreak) {
+      y += Math.round(layout.lineHeight * 0.62);
+      return;
+    }
+
     const runs = lineToRuns(line);
     let cursor = layout.textX;
 
     runs.forEach((run) => {
       const width = ctx.measureText(run.text).width;
       if (run.type === "highlight" || run.type === "underline") {
-        hitBoxes.push({ ...run, x: cursor, y: y - layout.fontSize, width, height: layout.fontSize + 14, lineIndex });
+        hitBoxes.push({ ...run, x: cursor, y: y - layout.fontSize, width, height: layout.fontSize + 14, lineIndex: visualLineIndex });
       }
       cursor += width;
     });
 
     y += layout.lineHeight;
+    visualLineIndex += 1;
   });
 
-  const lineSlots = buildLineSlots(lines.length, layout, Number(doc.noteSize || 30));
+  const lineSlots = buildLineSlots(visualLineIndex, layout, Number(doc.noteSize || 30));
   return { format, layout, lines, hitBoxes, lineSlots };
 }
 
@@ -754,7 +784,7 @@ function drawFrame(ctx, format, layout) {
 function drawText(ctx, doc) {
   const format = FORMATS[doc.format];
   const layout = layoutFor(format, doc.lineGap);
-  const characters = buildCharacterMap(doc.passage, doc.highlights, doc.underlines);
+  const paragraphMaps = buildCharacterMap(doc.passage, doc.highlights, doc.underlines);
 
   ctx.fillStyle = "#7a6b59";
   ctx.font = "italic 20px Georgia, serif";
@@ -763,10 +793,15 @@ function drawText(ctx, doc) {
   ctx.font = `${layout.fontSize}px Georgia, serif`;
   ctx.textBaseline = "alphabetic";
 
-  const lines = wrapLines(ctx, characters, layout.textW);
+  const lines = wrapLines(ctx, paragraphMaps, layout.textW);
   let y = layout.textY;
 
   lines.forEach((line) => {
+    if (line.paragraphBreak) {
+      y += Math.round(layout.lineHeight * 0.62);
+      return;
+    }
+
     const runs = lineToRuns(line);
     let cursor = layout.textX;
 
