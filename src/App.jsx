@@ -415,6 +415,7 @@ function parseSpec(specText, genreKey = "regency") {
     footer: `${parsedTitle} · ${parsedChapter}`,
     format: "story",
     lineGap: 22,
+    paragraphGap: 0,
     noteSize: 30,
     genre: genreKey,
     passage,
@@ -613,6 +614,23 @@ function layoutFor(format, lineGap) {
   };
 }
 
+function buildLineSlotsFromYPositions(yPositions, layout, noteSize) {
+  return yPositions.map((baseline, index) => {
+    const gapTop = baseline + Math.max(10, noteSize * 0.14);
+    const gapBottom = baseline + layout.lineHeight - Math.max(12, noteSize * 0.22);
+    const gapHeight = Math.max(1, gapBottom - gapTop);
+
+    return {
+      lineIndex: index,
+      baseline,
+      gapTop,
+      gapBottom,
+      gapHeight,
+      noteBaseline: gapTop + gapHeight * 0.68,
+    };
+  });
+}
+
 function buildLineSlots(lineCount, layout, noteSize) {
   return Array.from({ length: lineCount }, (_, index) => {
     const baseline = layout.textY + index * layout.lineHeight;
@@ -672,13 +690,15 @@ function measureDocument(doc) {
 
   let y = layout.textY;
   let visualLineIndex = 0;
+  const yPositions = [];
 
   lines.forEach((line) => {
     if (line.paragraphBreak) {
-      y += Math.round(layout.lineHeight * 0.62);
+      y += Math.max(0, Number(doc.paragraphGap || 0));
       return;
     }
 
+    yPositions.push(y);
     const runs = lineToRuns(line);
     let cursor = layout.textX;
 
@@ -694,7 +714,7 @@ function measureDocument(doc) {
     visualLineIndex += 1;
   });
 
-  const lineSlots = buildLineSlots(visualLineIndex, layout, Number(doc.noteSize || 30));
+  const lineSlots = buildLineSlotsFromYPositions(yPositions, layout, Number(doc.noteSize || 30));
   return { format, layout, lines, hitBoxes, lineSlots };
 }
 
@@ -799,7 +819,7 @@ function drawText(ctx, doc) {
 
   lines.forEach((line) => {
     if (line.paragraphBreak) {
-      y += Math.round(layout.lineHeight * 0.62);
+      y += Math.max(0, Number(doc.paragraphGap || 0));
       return;
     }
 
@@ -812,7 +832,7 @@ function drawText(ctx, doc) {
       if (run.type === "highlight") {
         const fill = HIGHLIGHT_COLORS[run.color || doc.defaultHighlightColor || "yellow"]?.fill || HIGHLIGHT_COLORS.yellow.fill;
         ctx.fillStyle = fill;
-        ctx.fillRect(cursor - 3, y - layout.fontSize + 6, width + 6, layout.fontSize + 8);
+        ctx.fillRect(cursor - 3, y - layout.fontSize + 2, width + 6, layout.lineHeight - 2);
       }
 
       ctx.fillStyle = "#111111";
