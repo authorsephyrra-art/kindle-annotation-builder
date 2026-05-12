@@ -104,39 +104,6 @@ const GENRE_PRESETS = {
 
 const PAGE_COLOR = "#fff7e6";
 
-const PAGE_THEMES = {
-  offwhite: {
-    label: "Offwhite",
-    page: "#fff7e6",
-    text: "#111111",
-    muted: "#7a6b59",
-    footer: "#171717",
-    grain: "rgba(90,70,40,.043)",
-  },
-  white: {
-    label: "White",
-    page: "#ffffff",
-    text: "#111111",
-    muted: "#6f6f6f",
-    footer: "#111111",
-    grain: "rgba(0,0,0,.026)",
-  },
-  black: {
-    label: "Black",
-    page: "#080808",
-    text: "#f7f2e8",
-    muted: "#b9ad9c",
-    footer: "#f7f2e8",
-    grain: "rgba(255,255,255,.035)",
-  },
-};
-
-function getPageTheme(doc) {
-  return PAGE_THEMES[doc?.pageTheme] || PAGE_THEMES.offwhite;
-}
-
-const PARAGRAPH_GAP_RATIO = 0.35;
-
 const DEFAULT_SPEC = `PASSAGE 3 — "Maze Heat" (Chapter 13, Yellow)
 
 Copy this text:
@@ -195,15 +162,16 @@ function cleanLines(value) {
     .filter(Boolean);
 }
 
-function extractQuotedPhrases(line) {
-  const matches = [...(line || "").matchAll(/["“](.+?)["”]/g)]
-    .map((match) => match[1].trim())
+function extractQuotedPhrases(value) {
+  const source = value || "";
+  const matches = [...source.matchAll(/["“]([\s\S]+?)["”]/g)]
+    .map((match) => normalizeText(match[1]))
     .filter(Boolean);
 
   if (matches.length) return matches;
 
-  const fallback = stripOuterQuotes((line || "").trim());
-  return fallback ? [fallback] : [];
+  const fallback = stripOuterQuotes(source.trim());
+  return fallback ? [normalizeText(fallback)] : [];
 }
 
 function splitWriteInstructions(value) {
@@ -285,7 +253,8 @@ function sanitizeFilename(raw) {
 }
 
 function parseSpec(specText, genreKey = "regency") {
-  const lines = (specText || "").split("\n");
+  const raw = specText || "";
+  const lines = raw.split("\n");
   const firstNonEmpty = lines.find((line) => line.trim()) || `PASSAGE 1 — "Untitled" (Chapter 1, Yellow)`;
 
   const titleMatch = firstNonEmpty.match(/—\s*["“](.+?)["”]\s*\((.+?),\s*([^)]+)\)/i);
@@ -294,105 +263,101 @@ function parseSpec(specText, genreKey = "regency") {
   const genrePreset = getGenrePreset(genreKey);
   const parsedPrimaryHighlight = guessHighlightColor(titleMatch?.[3] || genrePreset.highlightColor || "yellow");
 
-  let mode = "";
-  let currentHighlightColor = parsedPrimaryHighlight;
-  let currentAnnotationColor = genrePreset.noteColor;
-  let currentAnnotationShimmer = "strong";
+  const sections = [];
+  let current = null;
 
-  const passageLines = [];
-  const highlightEntries = [];
-  const underlineEntries = [];
-  const noteInstructions = [];
-
-  const addHighlightPhrases = (value) => {
-    extractQuotedPhrases(value).forEach((phrase) => {
-      highlightEntries.push({ phrase, color: currentHighlightColor });
-    });
+  const pushCurrent = () => {
+    if (!current) return;
+    current.content = current.content.join("\n").trim();
+    sections.push(current);
+    current = null;
   };
 
-  const addUnderlinePhrases = (value) => {
-    extractQuotedPhrases(value).forEach((phrase) => {
-      underlineEntries.push({ phrase });
-    });
-  };
-
-  const addNoteInstructions = (value) => {
-    splitWriteInstructions(value).forEach((raw) => {
-      noteInstructions.push({
-        raw,
-        color: currentAnnotationColor,
-        shimmer: currentAnnotationShimmer,
-      });
-    });
-  };
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const rawLine = lines[i];
+  raw.split("\n").forEach((rawLine, lineIndex) => {
     const line = rawLine.trim();
-
     if (!line) {
-      if (mode === "passage") passageLines.push("");
-      continue;
+      if (current) current.content.push("");
+      return;
     }
-    if (line === firstNonEmpty.trim()) continue;
+
+    if (lineIndex === 0 && line === firstNonEmpty.trim()) return;
 
     const copyMatch = rawLine.match(/^\s*Copy this text:\s*(.*)$/i);
     if (copyMatch) {
-      mode = "passage";
-      if (copyMatch[1]?.trim()) passageLines.push(copyMatch[1].trim());
-      continue;
+      pushCurrent();
+      current = { type: "passage", content: [] };
+      if (copyMatch[1]?.trim()) current.content.push(copyMatch[1].trim());
+      return;
     }
 
     const highlightMatch = line.match(/^Highlight in\s+([A-Za-z ]+):\s*(.*)$/i);
     if (highlightMatch) {
-      mode = "highlight";
-      currentHighlightColor = guessHighlightColor(highlightMatch[1]);
-      if (highlightMatch[2]?.trim()) addHighlightPhrases(highlightMatch[2]);
-      continue;
+      pushCurrent();
+      current = { type: "highlight", color: guessHighlightColor(highlightMatch[1]), content: [] };
+      if (highlightMatch[2]?.trim()) current.content.push(highlightMatch[2].trim());
+      return;
     }
 
     const underlineMatch = line.match(/^Dotted underline:\s*(.*)$/i);
     if (underlineMatch) {
-      mode = "underline";
-      if (underlineMatch[1]?.trim()) addUnderlinePhrases(underlineMatch[1]);
-      continue;
+      pushCurrent();
+      current = { type: "underline", content: [] };
+      if (underlineMatch[1]?.trim()) current.content.push(underlineMatch[1].trim());
+      return;
     }
 
     const annotationMatch = line.match(/^(.*?)annotations:\s*(.*)$/i);
     if (annotationMatch) {
-      mode = "notes";
+      pushCurrent();
       const heading = annotationMatch[1]?.toLowerCase() || "";
-      currentAnnotationColor = guessNoteColor(heading, genrePreset.noteColor);
-      currentAnnotationShimmer = heading.includes("glitter") ? "strong" : "soft";
-      if (annotationMatch[2]?.trim()) addNoteInstructions(annotationMatch[2]);
-      continue;
+      current = {
+        type: "notes",
+        color: guessNoteColor(heading, genrePreset.noteColor),
+        shimmer: heading.includes("glitter") ? "strong" : "soft",
+        content: [],
+      };
+      if (annotationMatch[2]?.trim()) current.content.push(annotationMatch[2].trim());
+      return;
     }
 
-    if (mode === "passage") {
-      passageLines.push(rawLine.trim());
-      continue;
+    if (current) current.content.push(rawLine);
+  });
+
+  pushCurrent();
+
+  const passage = sections
+    .filter((section) => section.type === "passage")
+    .map((section) => section.content)
+    .join("\n")
+    .trim();
+
+  const highlightEntries = [];
+  const underlineEntries = [];
+  const noteInstructions = [];
+
+  sections.forEach((section) => {
+    if (section.type === "highlight") {
+      extractQuotedPhrases(section.content).forEach((phrase) => {
+        highlightEntries.push({ phrase, color: section.color || parsedPrimaryHighlight });
+      });
     }
 
-    if (mode === "highlight") {
-      addHighlightPhrases(line);
-      continue;
+    if (section.type === "underline") {
+      extractQuotedPhrases(section.content).forEach((phrase) => {
+        underlineEntries.push({ phrase });
+      });
     }
 
-    if (mode === "underline") {
-      addUnderlinePhrases(line);
-      continue;
+    if (section.type === "notes") {
+      splitWriteInstructions(section.content).forEach((rawInstruction) => {
+        noteInstructions.push({ raw: rawInstruction, color: section.color, shimmer: section.shimmer });
+      });
     }
-
-    if (mode === "notes") {
-      addNoteInstructions(line);
-    }
-  }
-
-  const passage = passageLines.join("\n").trim();
+  });
 
   const firstLineFallback =
     highlightEntries[0]?.phrase ||
-    stripOuterQuotes((passageLines[0] || "").trim()) ||
+    stripOuterQuotes((passage.split("\n").find((line) => line.trim()) || "").trim()) ||
     normalizeText(passage).split(".")[0] + ".";
 
   const lastLineFallback =
@@ -400,18 +365,18 @@ function parseSpec(specText, genreKey = "regency") {
     normalizeText(passage).split(".").filter(Boolean).slice(-1)[0]?.trim() + ".";
 
   const notes = noteInstructions.map((item) => {
-    const raw = item.raw;
-    const quoteMatches = [...raw.matchAll(/["“](.+?)["”]/g)].map((match) => match[1]);
-    const writeMatch = raw.match(/^Write\s+(.+?)(?:\s+(above|next to|near)\s+(.+?))?(?:\s+with\s+(.+))?$/i);
+    const rawInstruction = item.raw;
+    const quoteMatches = [...rawInstruction.matchAll(/["“]([\s\S]+?)["”]/g)].map((match) => normalizeText(match[1]));
+    const writeMatch = rawInstruction.match(/^Write\s+([\s\S]+?)(?:\s+(above|next to|near)\s+([\s\S]+?))?(?:\s+with\s+([\s\S]+))?$/i);
 
     let text = "";
     let target = firstLineFallback;
     let decor = "none";
 
     if (writeMatch) {
-      text = writeMatch[1]?.trim() || "note";
-      const positionTarget = writeMatch[3]?.trim() || "";
-      const tail = writeMatch[4]?.trim() || "";
+      text = normalizeText(writeMatch[1] || "note");
+      const positionTarget = normalizeText(writeMatch[3] || "");
+      const tail = normalizeText(writeMatch[4] || "");
 
       if (quoteMatches.length > 0) {
         target = quoteMatches[0];
@@ -423,9 +388,9 @@ function parseSpec(specText, genreKey = "regency") {
         target = positionTarget.replace(/^the\s+/i, "").trim();
       }
 
-      decor = detectDecor(`${tail} ${raw}`, genreKey);
+      decor = detectDecor(`${tail} ${rawInstruction}`, genreKey);
     } else {
-      text = raw;
+      text = normalizeText(rawInstruction);
     }
 
     return {
@@ -451,7 +416,6 @@ function parseSpec(specText, genreKey = "regency") {
     format: "story",
     lineGap: 22,
     noteSize: 30,
-    pageTheme: "offwhite",
     genre: genreKey,
     passage,
     highlights: highlightEntries,
@@ -660,25 +624,6 @@ function buildLineSlots(lineCount, layout, noteSize) {
   });
 }
 
-function buildLineSlotsFromBaselines(baselines, layout, noteSize) {
-  return baselines.map((baseline, index) => {
-    const nextBaseline = baselines[index + 1] || baseline + layout.lineHeight;
-    const effectiveLineHeight = Math.max(layout.lineHeight * 0.72, nextBaseline - baseline);
-    const gapTop = baseline + Math.max(10, noteSize * 0.14);
-    const gapBottom = baseline + effectiveLineHeight - Math.max(12, noteSize * 0.22);
-    const gapHeight = Math.max(1, gapBottom - gapTop);
-
-    return {
-      lineIndex: index,
-      baseline,
-      gapTop,
-      gapBottom,
-      gapHeight,
-      noteBaseline: gapTop + gapHeight * 0.68,
-    };
-  });
-}
-
 function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
@@ -727,15 +672,12 @@ function measureDocument(doc) {
 
   let y = layout.textY;
   let visualLineIndex = 0;
-  const baselines = [];
 
   lines.forEach((line) => {
     if (line.paragraphBreak) {
-      y += Math.round(layout.lineHeight * PARAGRAPH_GAP_RATIO);
+      y += Math.round(layout.lineHeight * 0.62);
       return;
     }
-
-    baselines.push(y);
 
     const runs = lineToRuns(line);
     let cursor = layout.textX;
@@ -752,7 +694,7 @@ function measureDocument(doc) {
     visualLineIndex += 1;
   });
 
-  const lineSlots = buildLineSlotsFromBaselines(baselines, layout, Number(doc.noteSize || 30));
+  const lineSlots = buildLineSlots(visualLineIndex, layout, Number(doc.noteSize || 30));
   return { format, layout, lines, hitBoxes, lineSlots };
 }
 
@@ -812,10 +754,9 @@ function autoPlaceNotes(doc, notes) {
   });
 }
 
-function drawFrame(ctx, format, layout, doc = {}) {
+function drawFrame(ctx, format, layout) {
   const { width, height } = format;
   const outerPad = Math.max(32, Math.round(width * 0.038));
-  const pageTheme = getPageTheme(doc);
 
   const bg = ctx.createLinearGradient(0, 0, width, height);
   bg.addColorStop(0, "#d6cabd");
@@ -831,11 +772,11 @@ function drawFrame(ctx, format, layout, doc = {}) {
   roundRect(ctx, outerPad + 18, outerPad + 18, width - (outerPad + 18) * 2, height - (outerPad + 18) * 2, 38);
   ctx.fill();
 
-  ctx.fillStyle = pageTheme.page;
+  ctx.fillStyle = PAGE_COLOR;
   roundRect(ctx, layout.page.x, layout.page.y, layout.page.w, layout.page.h, 8);
   ctx.fill();
 
-  ctx.fillStyle = pageTheme.grain;
+  ctx.fillStyle = "rgba(90,70,40,.043)";
   for (let y = layout.page.y; y < layout.page.y + layout.page.h; y += 4) {
     ctx.fillRect(layout.page.x, y, layout.page.w, 1);
   }
@@ -845,9 +786,8 @@ function drawText(ctx, doc) {
   const format = FORMATS[doc.format];
   const layout = layoutFor(format, doc.lineGap);
   const paragraphMaps = buildCharacterMap(doc.passage, doc.highlights, doc.underlines);
-  const pageTheme = getPageTheme(doc);
 
-  ctx.fillStyle = pageTheme.muted;
+  ctx.fillStyle = "#7a6b59";
   ctx.font = "italic 20px Georgia, serif";
   ctx.fillText(`${doc.chapter} · ${doc.title}`, layout.textX, layout.headerY);
 
@@ -859,7 +799,7 @@ function drawText(ctx, doc) {
 
   lines.forEach((line) => {
     if (line.paragraphBreak) {
-      y += Math.round(layout.lineHeight * PARAGRAPH_GAP_RATIO);
+      y += Math.round(layout.lineHeight * 0.62);
       return;
     }
 
@@ -875,7 +815,7 @@ function drawText(ctx, doc) {
         ctx.fillRect(cursor - 3, y - layout.fontSize + 6, width + 6, layout.fontSize + 8);
       }
 
-      ctx.fillStyle = pageTheme.text;
+      ctx.fillStyle = "#111111";
       ctx.fillText(run.text, cursor, y);
 
       if (run.type === "underline") {
@@ -899,7 +839,7 @@ function drawText(ctx, doc) {
   });
 
   ctx.textAlign = "center";
-  ctx.fillStyle = pageTheme.footer;
+  ctx.fillStyle = "#171717";
   ctx.font = "700 28px Arial, sans-serif";
   ctx.fillText(doc.footer, format.width / 2, layout.footerY);
 }
@@ -948,7 +888,7 @@ function drawScene(ctx, doc, notes, options = {}) {
   const layout = layoutFor(format, doc.lineGap);
 
   ctx.clearRect(0, 0, format.width, format.height);
-  drawFrame(ctx, format, layout, doc);
+  drawFrame(ctx, format, layout);
 
   ctx.save();
   drawText(ctx, doc);
@@ -1236,7 +1176,7 @@ export default function App() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.22)" }}>
         <div>
           <div style={{ fontSize: 14, letterSpacing: ".18em", textTransform: "uppercase", color: "#f0cfaa" }}>Kindle Annotation Builder</div>
-          <div style={{ fontSize: 11, color: "#a9967c" }}>Preview is zoomable. Notes are HTML-only in preview. Export burns notes into the PNG. Genre presets and page background are editable.</div>
+          <div style={{ fontSize: 11, color: "#a9967c" }}>Preview is zoomable. Notes are HTML-only in preview. Export burns notes into the PNG. Genre presets now switch the decor vibe too.</div>
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
@@ -1265,12 +1205,6 @@ export default function App() {
             </Field>
           </div>
 
-          <Field label="Page background">
-            <select value={doc.pageTheme || "offwhite"} onChange={(e) => updateDoc("pageTheme", e.target.value)} style={inputStyle}>
-              {Object.entries(PAGE_THEMES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
-            </select>
-          </Field>
-
           <Field label="Save filename">
             <input value={doc.saveTitle} onChange={(e) => updateDoc("saveTitle", e.target.value)} style={inputStyle} />
           </Field>
@@ -1298,7 +1232,7 @@ export default function App() {
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,79,207,.10)", border: "1px solid rgba(255,79,207,.25)", fontSize: 12, lineHeight: 1.45, color: "#ffd6f3" }}>
-            Genre presets now work for Regency Romance, Dark Romance, Dark Horror Romance, and Horror. You can also switch the page background between white, offwhite, and black. Black uses white page text automatically.
+            Genre presets now work for Regency Romance, Dark Romance, Dark Horror Romance, and Horror. Build Screenshot will re-read your pasted block using the selected preset. The canvas preview still stays text-only, so the draggable notes are the only notes you see in preview.
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)", fontSize: 12, lineHeight: 1.5, color: "#efe2cf" }}>
