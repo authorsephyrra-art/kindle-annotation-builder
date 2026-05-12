@@ -22,6 +22,12 @@ const NOTE_COLORS = {
   green: { label: "Green", ink: "#27d86a", glow: "rgba(39,216,106,.76)" },
   orange: { label: "Orange", ink: "#ff8a2f", glow: "rgba(255,138,47,.76)" },
   white: { label: "White", ink: "#ffffff", glow: "rgba(255,255,255,.84)" },
+  bloodRed: { label: "Blood Red", ink: "#d21632", glow: "rgba(210,22,50,.82)" },
+  amber: { label: "Amber", ink: "#ffb347", glow: "rgba(255,179,71,.82)" },
+  gold: { label: "Gold", ink: "#d4af37", glow: "rgba(212,175,55,.78)" },
+  acidGreen: { label: "Acid Green", ink: "#b8ff2c", glow: "rgba(184,255,44,.82)" },
+  coldBlue: { label: "Cold Blue", ink: "#8ed8ff", glow: "rgba(142,216,255,.82)" },
+  black: { label: "Black", ink: "#111111", glow: "rgba(0,0,0,.18)" },
 };
 
 const NOTE_FONTS = {
@@ -40,9 +46,60 @@ const SHIMMER_LEVELS = {
 };
 
 const DECOR_OPTIONS = {
-  none: { label: "None" },
-  hearts: { label: "Hearts" },
-  star: { label: "Star" },
+  none: { label: "None", glyph: "" },
+  hearts: { label: "Hearts", glyph: "💕" },
+  star: { label: "Star", glyph: "✦" },
+  sparkle: { label: "Sparkle", glyph: "✨" },
+  crown: { label: "Crown", glyph: "♛" },
+  fan: { label: "Fan", glyph: "🪭" },
+  rose: { label: "Rose", glyph: "🌹" },
+  teacup: { label: "Teacup", glyph: "☕" },
+  ring: { label: "Ring", glyph: "💍" },
+  skull: { label: "Skull", glyph: "☠" },
+  knife: { label: "Knife", glyph: "🗡" },
+  blood: { label: "Blood Drop", glyph: "🩸" },
+  wolf: { label: "Wolf", glyph: "🐺" },
+  moon: { label: "Moon", glyph: "🌙" },
+  claw: { label: "Claw", glyph: "🐾" },
+  chain: { label: "Chain", glyph: "⛓" },
+  flame: { label: "Flame", glyph: "🔥" },
+  ghost: { label: "Ghost", glyph: "👻" },
+  web: { label: "Spiderweb", glyph: "🕸" },
+  stitches: { label: "Stitches", glyph: "🪡" },
+  eye: { label: "Eye", glyph: "👁" },
+  window: { label: "Window", glyph: "🪟" },
+  cross: { label: "Cross", glyph: "✝" },
+};
+
+const GENRE_PRESETS = {
+  regency: {
+    label: "Regency Romance",
+    noteColor: "neonPink",
+    highlightColor: "yellow",
+    noteFont: "patrickHand",
+    decors: ["hearts", "star", "sparkle", "crown", "fan", "rose", "teacup", "ring"],
+  },
+  darkRomance: {
+    label: "Dark Romance",
+    noteColor: "bloodRed",
+    highlightColor: "pink",
+    noteFont: "permanentMarker",
+    decors: ["hearts", "claw", "wolf", "moon", "blood", "chain", "flame", "star"],
+  },
+  darkHorror: {
+    label: "Dark Horror Romance",
+    noteColor: "bloodRed",
+    highlightColor: "purple",
+    noteFont: "kalam",
+    decors: ["blood", "knife", "skull", "wolf", "moon", "chain", "claw", "ghost", "star"],
+  },
+  horror: {
+    label: "Horror",
+    noteColor: "acidGreen",
+    highlightColor: "blue",
+    noteFont: "shadowsIntoLight",
+    decors: ["skull", "knife", "blood", "ghost", "web", "stitches", "eye", "window", "cross"],
+  },
 };
 
 const PAGE_COLOR = "#fff7e6";
@@ -97,23 +154,30 @@ function cleanLines(value) {
     .filter(Boolean);
 }
 
+function extractQuotedPhrases(line) {
+  const matches = [...(line || "").matchAll(/["“](.+?)["”]/g)]
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+
+  if (matches.length) return matches;
+
+  const fallback = stripOuterQuotes((line || "").trim());
+  return fallback ? [fallback] : [];
+}
+
+function splitWriteInstructions(value) {
+  return (value || "")
+    .split(/(?=\bWrite\s+)/i)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function stripOuterQuotes(value) {
   const trimmed = (value || "").trim();
   if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("“") && trimmed.endsWith("”"))) {
     return trimmed.slice(1, -1).trim();
   }
   return trimmed;
-}
-
-function guessNoteColor(value) {
-  const v = (value || "").toLowerCase().trim();
-  if (v.includes("neon pink") || v.includes("pink")) return "neonPink";
-  if (v.includes("purple")) return "purple";
-  if (v.includes("blue")) return "blue";
-  if (v.includes("green")) return "green";
-  if (v.includes("orange")) return "orange";
-  if (v.includes("white")) return "white";
-  return "neonPink";
 }
 
 function guessHighlightColor(value) {
@@ -127,10 +191,51 @@ function guessHighlightColor(value) {
   return "yellow";
 }
 
-function defaultFontForNoteText(text) {
+function getGenrePreset(genreKey) {
+  return GENRE_PRESETS[genreKey] || GENRE_PRESETS.regency;
+}
+
+function defaultFontForNoteText(text, genreKey = "regency") {
   const clean = (text || "").replace(/[^A-Za-z]/g, "");
   if (clean.length >= 5 && clean === clean.toUpperCase()) return "permanentMarker";
-  return "patrickHand";
+  return getGenrePreset(genreKey).noteFont;
+}
+
+function guessNoteColor(value, fallback = "neonPink") {
+  const v = (value || "").toLowerCase().trim();
+  if (v.includes("blood red") || v.includes("crimson") || v.includes("red")) return "bloodRed";
+  if (v.includes("neon pink") || v.includes("pink")) return "neonPink";
+  if (v.includes("gold")) return "gold";
+  if (v.includes("amber")) return "amber";
+  if (v.includes("acid green")) return "acidGreen";
+  if (v.includes("cold blue")) return "coldBlue";
+  if (v.includes("purple")) return "purple";
+  if (v.includes("blue")) return "blue";
+  if (v.includes("green")) return "green";
+  if (v.includes("orange")) return "orange";
+  if (v.includes("white")) return "white";
+  if (v.includes("black")) return "black";
+  return fallback;
+}
+
+function detectDecor(raw = "", genreKey = "regency") {
+  const value = raw.toLowerCase();
+  const checks = [
+    ["tiny hearts", "hearts"], ["hearts", "hearts"], ["heart", "hearts"],
+    ["sparkles", "sparkle"], ["sparkle", "sparkle"], ["star", "star"],
+    ["crown", "crown"], ["fan", "fan"], ["rose", "rose"], ["teacup", "teacup"], ["tea cup", "teacup"], ["ring", "ring"],
+    ["skull", "skull"], ["knife", "knife"], ["dagger", "knife"], ["blood drop", "blood"], ["blood drops", "blood"], ["blood", "blood"],
+    ["wolf", "wolf"], ["moon", "moon"], ["claw", "claw"], ["paw", "claw"], ["chain", "chain"], ["flame", "flame"], ["fire", "flame"],
+    ["ghost", "ghost"], ["web", "web"], ["stitches", "stitches"], ["stitch", "stitches"], ["eye", "eye"], ["window", "window"], ["cross", "cross"],
+  ];
+  for (const [needle, decor] of checks) {
+    if (value.includes(needle)) return decor;
+  }
+  return "none";
+}
+
+function getDecorGlyph(decor) {
+  return DECOR_OPTIONS[decor]?.glyph || "";
 }
 
 function sanitizeFilename(raw) {
@@ -138,18 +243,19 @@ function sanitizeFilename(raw) {
   return base || "kindle-annotation";
 }
 
-function parseSpec(specText) {
+function parseSpec(specText, genreKey = "regency") {
   const lines = (specText || "").split("\n");
   const firstNonEmpty = lines.find((line) => line.trim()) || `PASSAGE 1 — "Untitled" (Chapter 1, Yellow)`;
 
   const titleMatch = firstNonEmpty.match(/—\s*["“](.+?)["”]\s*\((.+?),\s*([^)]+)\)/i);
   const parsedTitle = titleMatch?.[1]?.trim() || "Untitled";
   const parsedChapter = titleMatch?.[2]?.trim() || "Chapter 1";
-  const parsedPrimaryHighlight = guessHighlightColor(titleMatch?.[3] || "yellow");
+  const genrePreset = getGenrePreset(genreKey);
+  const parsedPrimaryHighlight = guessHighlightColor(titleMatch?.[3] || genrePreset.highlightColor || "yellow");
 
   let mode = "";
   let currentHighlightColor = parsedPrimaryHighlight;
-  let currentAnnotationColor = "neonPink";
+  let currentAnnotationColor = genrePreset.noteColor;
   let currentAnnotationShimmer = "strong";
 
   const passageLines = [];
@@ -157,64 +263,101 @@ function parseSpec(specText) {
   const underlineEntries = [];
   const noteInstructions = [];
 
+  const addHighlightPhrases = (value) => {
+    extractQuotedPhrases(value).forEach((phrase) => {
+      highlightEntries.push({ phrase, color: currentHighlightColor });
+    });
+  };
+
+  const addUnderlinePhrases = (value) => {
+    extractQuotedPhrases(value).forEach((phrase) => {
+      underlineEntries.push({ phrase });
+    });
+  };
+
+  const addNoteInstructions = (value) => {
+    splitWriteInstructions(value).forEach((raw) => {
+      noteInstructions.push({
+        raw,
+        color: currentAnnotationColor,
+        shimmer: currentAnnotationShimmer,
+      });
+    });
+  };
+
   for (let i = 0; i < lines.length; i += 1) {
     const rawLine = lines[i];
     const line = rawLine.trim();
 
     if (!line) continue;
+    if (line === firstNonEmpty.trim()) continue;
 
-    if (/^Copy this text:/i.test(line)) {
+    const copyMatch = rawLine.match(/^\s*Copy this text:\s*(.*)$/i);
+    if (copyMatch) {
       mode = "passage";
+      if (copyMatch[1]?.trim()) passageLines.push(copyMatch[1].trim());
       continue;
     }
 
-    const highlightMatch = line.match(/^Highlight in\s+([A-Za-z ]+):/i);
+    const highlightMatch = line.match(/^Highlight in\s+([A-Za-z ]+):\s*(.*)$/i);
     if (highlightMatch) {
       mode = "highlight";
       currentHighlightColor = guessHighlightColor(highlightMatch[1]);
+      if (highlightMatch[2]?.trim()) addHighlightPhrases(highlightMatch[2]);
       continue;
     }
 
-    if (/^Dotted underline:/i.test(line)) {
+    const underlineMatch = line.match(/^Dotted underline:\s*(.*)$/i);
+    if (underlineMatch) {
       mode = "underline";
+      if (underlineMatch[1]?.trim()) addUnderlinePhrases(underlineMatch[1]);
       continue;
     }
 
-    const annotationMatch = line.match(/^(.*?)annotations:/i);
+    const annotationMatch = line.match(/^(.*?)annotations:\s*(.*)$/i);
     if (annotationMatch) {
       mode = "notes";
       const heading = annotationMatch[1]?.toLowerCase() || "";
-      currentAnnotationColor = guessNoteColor(heading);
+      currentAnnotationColor = guessNoteColor(heading, genrePreset.noteColor);
       currentAnnotationShimmer = heading.includes("glitter") ? "strong" : "soft";
+      if (annotationMatch[2]?.trim()) addNoteInstructions(annotationMatch[2]);
       continue;
     }
 
-    if (i === 0) continue;
-
-    if (mode === "passage") passageLines.push(rawLine);
+    if (mode === "passage") {
+      passageLines.push(rawLine.trim());
+      continue;
+    }
 
     if (mode === "highlight") {
-      const phrase = stripOuterQuotes(line);
-      if (phrase) highlightEntries.push({ phrase, color: currentHighlightColor });
+      addHighlightPhrases(line);
+      continue;
     }
 
     if (mode === "underline") {
-      const phrase = stripOuterQuotes(line);
-      if (phrase) underlineEntries.push({ phrase });
+      addUnderlinePhrases(line);
+      continue;
     }
 
     if (mode === "notes") {
-      noteInstructions.push({ raw: line, color: currentAnnotationColor, shimmer: currentAnnotationShimmer });
+      addNoteInstructions(line);
     }
   }
 
   const passage = passageLines.join("\n").trim();
-  const firstLineFallback = highlightEntries[0]?.phrase || stripOuterQuotes((passageLines[0] || "").trim()) || normalizeText(passage).split(".")[0] + ".";
-  const lastLineFallback = highlightEntries[highlightEntries.length - 1]?.phrase || normalizeText(passage).split(".").filter(Boolean).slice(-1)[0]?.trim() + ".";
+
+  const firstLineFallback =
+    highlightEntries[0]?.phrase ||
+    stripOuterQuotes((passageLines[0] || "").trim()) ||
+    normalizeText(passage).split(".")[0] + ".";
+
+  const lastLineFallback =
+    highlightEntries[highlightEntries.length - 1]?.phrase ||
+    normalizeText(passage).split(".").filter(Boolean).slice(-1)[0]?.trim() + ".";
 
   const notes = noteInstructions.map((item) => {
     const raw = item.raw;
-    const quoteMatches = [...raw.matchAll(/["“](.+?)["”]/g)].map((m) => m[1]);
+    const quoteMatches = [...raw.matchAll(/["“](.+?)["”]/g)].map((match) => match[1]);
     const writeMatch = raw.match(/^Write\s+(.+?)(?:\s+(above|next to|near)\s+(.+?))?(?:\s+with\s+(.+))?$/i);
 
     let text = "";
@@ -236,8 +379,7 @@ function parseSpec(specText) {
         target = positionTarget.replace(/^the\s+/i, "").trim();
       }
 
-      if (/heart/i.test(tail)) decor = "hearts";
-      if (/star/i.test(tail)) decor = "star";
+      decor = detectDecor(`${tail} ${raw}`, genreKey);
     } else {
       text = raw;
     }
@@ -251,7 +393,7 @@ function parseSpec(specText) {
       decor,
       size: 30,
       rotation: text.toLowerCase() === "scandalous" ? -3 : 0,
-      font: defaultFontForNoteText(text),
+      font: defaultFontForNoteText(text, genreKey),
       x: 0,
       y: 0,
     };
@@ -265,6 +407,7 @@ function parseSpec(specText) {
     format: "story",
     lineGap: 22,
     noteSize: 30,
+    genre: genreKey,
     passage,
     highlights: highlightEntries,
     underlines: underlineEntries,
@@ -472,9 +615,8 @@ function measureNoteBox(note) {
   const size = Number(note.size || 30);
   ctx.font = `700 ${size}px ${getNoteFontFamily(note)}`;
   const baseWidth = ctx.measureText(note.text || "").width;
-  let extra = 36;
-  if (note.decor === "hearts") extra = 86;
-  if (note.decor === "star") extra = 48;
+  const glyph = getDecorGlyph(note.decor);
+  const extra = glyph ? Math.max(42, size * 1.1) : 24;
 
   return { width: baseWidth + extra, height: size + 18 };
 }
@@ -670,6 +812,7 @@ function drawOneNote(ctx, note) {
   const color = NOTE_COLORS[note.color] || NOTE_COLORS.neonPink;
   const shimmer = SHIMMER_LEVELS[note.shimmer] || SHIMMER_LEVELS.soft;
   const fontSize = Number(note.size || 30);
+  const glyph = getDecorGlyph(note.decor);
 
   ctx.save();
   ctx.translate(note.x, note.y + fontSize * 0.84);
@@ -687,15 +830,17 @@ function drawOneNote(ctx, note) {
     drawSpark(ctx, w + 18, -14, 8, color.ink, color.glow, shimmer.blur);
   }
 
-  if (note.decor === "hearts") {
+  if (glyph) {
     const w = ctx.measureText(note.text).width;
-    drawHeart(ctx, w + 18, -28, 20, color.ink, color.glow, shimmer.blur);
-    drawHeart(ctx, w + 46, -4, 14, color.ink, color.glow, shimmer.blur);
-  }
-
-  if (note.decor === "star") {
-    const w = ctx.measureText(note.text).width;
-    drawSpark(ctx, w + 18, -12, 12, color.ink, color.glow, shimmer.blur);
+    if (note.decor === "hearts") {
+      drawHeart(ctx, w + 18, -28, 20, color.ink, color.glow, shimmer.blur);
+      drawHeart(ctx, w + 46, -4, 14, color.ink, color.glow, shimmer.blur);
+    } else if (note.decor === "star") {
+      drawSpark(ctx, w + 18, -12, 12, color.ink, color.glow, shimmer.blur);
+    } else {
+      ctx.font = `${Math.max(18, fontSize * 0.72)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+      ctx.fillText(glyph, w + 14, -4);
+    }
   }
 
   ctx.restore();
@@ -823,8 +968,9 @@ function NoteOverlay({ note, scale, selected, onSelect, onMove }) {
 
       <span>{note.text}</span>
 
-      {note.decor === "hearts" && <span style={{ marginLeft: 6 * scale, fontSize: note.size * 0.72 * scale }}>💕</span>}
-      {note.decor === "star" && <span style={{ marginLeft: 6 * scale, fontSize: note.size * 0.65 * scale }}>✦</span>}
+      {note.decor !== "none" && getDecorGlyph(note.decor) && (
+        <span style={{ marginLeft: 6 * scale, fontSize: note.size * 0.68 * scale }}>{getDecorGlyph(note.decor)}</span>
+      )}
     </div>
   );
 }
@@ -877,6 +1023,7 @@ export default function App() {
   const [notes, setNotes] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [previewWidth, setPreviewWidth] = useState(620);
+  const [selectedGenre, setSelectedGenre] = useState("regency");
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -893,17 +1040,17 @@ export default function App() {
     return () => style.remove();
   }, []);
 
-  const buildFromSpec = useCallback((raw) => {
-    const parsed = parseSpec(raw);
+  const buildFromSpec = useCallback((raw, genreKey = selectedGenre) => {
+    const parsed = parseSpec(raw, genreKey);
     const placedNotes = autoPlaceNotes(parsed, parsed.notes);
     setDoc(parsed);
     setNotes(placedNotes);
     setSelectedId(placedNotes[0]?.id || null);
-  }, []);
+  }, [selectedGenre]);
 
   useEffect(() => {
-    if (fontReady) buildFromSpec(DEFAULT_SPEC);
-  }, [fontReady, buildFromSpec]);
+    if (fontReady) buildFromSpec(DEFAULT_SPEC, "regency");
+  }, [fontReady]);
 
   const format = FORMATS[doc.format];
   const scale = previewWidth / format.width;
@@ -963,12 +1110,12 @@ export default function App() {
       id: uid(),
       text: "new note",
       target: "",
-      color: "neonPink",
+      color: getGenrePreset(selectedGenre).noteColor,
       shimmer: "soft",
       decor: "none",
       size: Number(doc.noteSize || 30),
       rotation: 0,
-      font: "patrickHand",
+      font: getGenrePreset(selectedGenre).noteFont,
       x: layout.textX + layout.textW * 0.62,
       y: layout.textY + 40,
     };
@@ -976,7 +1123,12 @@ export default function App() {
     setSelectedId(note.id);
   };
 
-  const rebuildFromPrompt = () => buildFromSpec(specText);
+  const applyGenrePreset = (genreKey) => {
+    setSelectedGenre(genreKey);
+    setDoc((old) => ({ ...old, genre: genreKey, defaultHighlightColor: getGenrePreset(genreKey).highlightColor }));
+  };
+
+  const rebuildFromPrompt = () => buildFromSpec(specText, selectedGenre);
 
   const exportPNG = async () => {
     await exportCanvas(doc, notes);
@@ -987,7 +1139,7 @@ export default function App() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.22)" }}>
         <div>
           <div style={{ fontSize: 14, letterSpacing: ".18em", textTransform: "uppercase", color: "#f0cfaa" }}>Kindle Annotation Builder</div>
-          <div style={{ fontSize: 11, color: "#a9967c" }}>Preview is zoomable. Notes are HTML-only in preview. Export burns notes into the PNG.</div>
+          <div style={{ fontSize: 11, color: "#a9967c" }}>Preview is zoomable. Notes are HTML-only in preview. Export burns notes into the PNG. Genre presets now switch the decor vibe too.</div>
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
@@ -1003,16 +1155,22 @@ export default function App() {
           </Field>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label="Genre preset">
+              <select value={selectedGenre} onChange={(e) => applyGenrePreset(e.target.value)} style={inputStyle}>
+                {Object.entries(GENRE_PRESETS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+              </select>
+            </Field>
+
             <Field label="Format">
               <select value={doc.format} onChange={(e) => updateDoc("format", e.target.value)} style={inputStyle}>
                 {Object.values(FORMATS).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
               </select>
             </Field>
-
-            <Field label="Save filename">
-              <input value={doc.saveTitle} onChange={(e) => updateDoc("saveTitle", e.target.value)} style={inputStyle} />
-            </Field>
           </div>
+
+          <Field label="Save filename">
+            <input value={doc.saveTitle} onChange={(e) => updateDoc("saveTitle", e.target.value)} style={inputStyle} />
+          </Field>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Field label={`Line space (${doc.lineGap}px)`}>
@@ -1037,7 +1195,20 @@ export default function App() {
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,79,207,.10)", border: "1px solid rgba(255,79,207,.25)", fontSize: 12, lineHeight: 1.45, color: "#ffd6f3" }}>
-            Fixed: the canvas preview no longer draws notes. Only the draggable HTML notes show in preview. Export still draws the notes into the PNG.
+            Genre presets now work for Regency Romance, Dark Romance, Dark Horror Romance, and Horror. Build Screenshot will re-read your pasted block using the selected preset. The canvas preview still stays text-only, so the draggable notes are the only notes you see in preview.
+          </div>
+
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)", fontSize: 12, lineHeight: 1.5, color: "#efe2cf" }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Preset decor library</div>
+            <div><b>{GENRE_PRESETS[selectedGenre].label}</b></div>
+            <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {GENRE_PRESETS[selectedGenre].decors.map((decorKey) => (
+                <span key={decorKey} style={{ padding: "4px 8px", borderRadius: 999, background: "rgba(255,255,255,.08)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span>{getDecorGlyph(decorKey)}</span>
+                  <span>{DECOR_OPTIONS[decorKey]?.label}</span>
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
