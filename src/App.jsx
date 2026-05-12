@@ -813,34 +813,34 @@ function drawOneNote(ctx, note) {
   const shimmer = SHIMMER_LEVELS[note.shimmer] || SHIMMER_LEVELS.soft;
   const fontSize = Number(note.size || 30);
   const glyph = getDecorGlyph(note.decor);
+  const fontFamily = getNoteFontFamily(note);
 
   ctx.save();
-  ctx.translate(note.x, note.y + fontSize * 0.84);
+  ctx.translate(note.x, note.y);
   ctx.rotate(((Number(note.rotation || 0)) * Math.PI) / 180);
-  ctx.font = `700 ${fontSize}px ${getNoteFontFamily(note)}`;
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+
+  if (note.shimmer !== "off") {
+    ctx.save();
+    ctx.font = `${fontSize * 0.65}px ${fontFamily}`;
+    ctx.fillStyle = color.ink;
+    ctx.shadowColor = color.glow;
+    ctx.shadowBlur = shimmer.blur;
+    ctx.fillText("✦", -16, -10);
+    ctx.restore();
+  }
+
+  ctx.font = `700 ${fontSize}px ${fontFamily}`;
   ctx.fillStyle = color.ink;
   ctx.shadowColor = color.glow;
   ctx.shadowBlur = shimmer.blur;
   ctx.fillText(note.text, 0, 0);
 
-  if (shimmer.sparks > 0) drawSpark(ctx, -18, -8, 12, color.ink, color.glow, shimmer.blur);
-
-  if (shimmer.sparks > 1) {
-    const w = ctx.measureText(note.text).width;
-    drawSpark(ctx, w + 18, -14, 8, color.ink, color.glow, shimmer.blur);
-  }
-
   if (glyph) {
-    const w = ctx.measureText(note.text).width;
-    if (note.decor === "hearts") {
-      drawHeart(ctx, w + 18, -28, 20, color.ink, color.glow, shimmer.blur);
-      drawHeart(ctx, w + 46, -4, 14, color.ink, color.glow, shimmer.blur);
-    } else if (note.decor === "star") {
-      drawSpark(ctx, w + 18, -12, 12, color.ink, color.glow, shimmer.blur);
-    } else {
-      ctx.font = `${Math.max(18, fontSize * 0.72)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-      ctx.fillText(glyph, w + 14, -4);
-    }
+    const textWidth = ctx.measureText(note.text).width;
+    ctx.font = `${fontSize * 0.68}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+    ctx.fillText(glyph, textWidth + 6, fontSize * 0.08);
   }
 
   ctx.restore();
@@ -910,6 +910,7 @@ async function exportCanvas(doc, notes) {
   }
 }
 
+// Canvas export uses textBaseline top to match this HTML overlay.
 function NoteOverlay({ note, scale, selected, onSelect, onMove }) {
   const startRef = useRef(null);
   const color = NOTE_COLORS[note.color] || NOTE_COLORS.neonPink;
