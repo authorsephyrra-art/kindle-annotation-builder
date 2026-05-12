@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const FORMATS = {
   story: { key: "story", label: "1080 × 1920", width: 1080, height: 1920 },
@@ -24,6 +24,15 @@ const NOTE_COLORS = {
   white: { label: "White", ink: "#ffffff", glow: "rgba(255,255,255,.84)" },
 };
 
+const NOTE_FONTS = {
+  patrickHand: { label: "Patrick Hand", family: '"Patrick Hand", cursive' },
+  indieFlower: { label: "Indie Flower", family: '"Indie Flower", cursive' },
+  shadowsIntoLight: { label: "Shadows Into Light", family: '"Shadows Into Light", cursive' },
+  kalam: { label: "Kalam", family: '"Kalam", cursive' },
+  dancingScript: { label: "Dancing Script", family: '"Dancing Script", cursive' },
+  permanentMarker: { label: "Permanent Marker", family: '"Permanent Marker", cursive' },
+};
+
 const SHIMMER_LEVELS = {
   off: { label: "Off", blur: 0, sparks: 0 },
   soft: { label: "Soft", blur: 10, sparks: 1 },
@@ -36,36 +45,7 @@ const DECOR_OPTIONS = {
   star: { label: "Star" },
 };
 
-const NOTE_FONTS = {
-  patrickHand: { label: "Patrick Hand", family: '"Patrick Hand", cursive', weight: 400 },
-  shadowsIntoLight: { label: "Shadows Into Light", family: '"Shadows Into Light", cursive', weight: 400 },
-  indieFlower: { label: "Indie Flower", family: '"Indie Flower", cursive', weight: 400 },
-  kalam: { label: "Kalam", family: '"Kalam", cursive', weight: 700 },
-  permanentMarker: { label: "Permanent Marker", family: '"Permanent Marker", cursive', weight: 400 },
-  dancingScript: { label: "Dancing Script", family: '"Dancing Script", cursive', weight: 700 },
-  gloriaHallelujah: { label: "Gloria Hallelujah", family: '"Gloria Hallelujah", cursive', weight: 400 },
-  satisfy: { label: "Satisfy", family: '"Satisfy", cursive', weight: 400 },
-  pacifico: { label: "Pacifico", family: '"Pacifico", cursive', weight: 400 },
-};
-
-function defaultFontForNote(text) {
-  const clean = (text || "").replace(/[^A-Za-z]/g, "");
-  const isShouty = clean.length >= 4 && clean === clean.toUpperCase();
-  if (isShouty) return "permanentMarker";
-  return "patrickHand";
-}
-
-function noteFont(note) {
-  return NOTE_FONTS[note?.font || "patrickHand"] || NOTE_FONTS.patrickHand;
-}
-
-function canvasNoteFont(note, size) {
-  const font = noteFont(note);
-  return `${font.weight || 400} ${size}px ${font.family}`;
-}
-
 const PAGE_COLOR = "#fff7e6";
-const PREVIEW_WIDTH = 430;
 
 const DEFAULT_SPEC = `PASSAGE 3 — "Maze Heat" (Chapter 13, Yellow)
 
@@ -119,16 +99,13 @@ function cleanLines(value) {
 
 function stripOuterQuotes(value) {
   const trimmed = (value || "").trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("“") && trimmed.endsWith("”"))
-  ) {
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("“") && trimmed.endsWith("”"))) {
     return trimmed.slice(1, -1).trim();
   }
   return trimmed;
 }
 
-function guessColorKey(value) {
+function guessNoteColor(value) {
   const v = (value || "").toLowerCase().trim();
   if (v.includes("neon pink") || v.includes("pink")) return "neonPink";
   if (v.includes("purple")) return "purple";
@@ -150,11 +127,14 @@ function guessHighlightColor(value) {
   return "yellow";
 }
 
-function sanitizeFilename(raw) {
-  const base = (raw || "kindle-annotation")
-    .replace(/[\/\\?%*:|<>]/g, "-")
-    .trim();
+function defaultFontForNoteText(text) {
+  const clean = (text || "").replace(/[^A-Za-z]/g, "");
+  if (clean.length >= 5 && clean === clean.toUpperCase()) return "permanentMarker";
+  return "patrickHand";
+}
 
+function sanitizeFilename(raw) {
+  const base = (raw || "kindle-annotation").replace(/[\/\\?%*:|<>]/g, "-").trim();
   return base || "kindle-annotation";
 }
 
@@ -204,58 +184,37 @@ function parseSpec(specText) {
     if (annotationMatch) {
       mode = "notes";
       const heading = annotationMatch[1]?.toLowerCase() || "";
-      currentAnnotationColor = guessColorKey(heading);
+      currentAnnotationColor = guessNoteColor(heading);
       currentAnnotationShimmer = heading.includes("glitter") ? "strong" : "soft";
       continue;
     }
 
     if (i === 0) continue;
 
-    if (mode === "passage") {
-      passageLines.push(rawLine);
-    }
+    if (mode === "passage") passageLines.push(rawLine);
 
     if (mode === "highlight") {
       const phrase = stripOuterQuotes(line);
-      if (phrase) {
-        highlightEntries.push({
-          phrase,
-          color: currentHighlightColor,
-        });
-      }
+      if (phrase) highlightEntries.push({ phrase, color: currentHighlightColor });
     }
 
     if (mode === "underline") {
       const phrase = stripOuterQuotes(line);
-      if (phrase) {
-        underlineEntries.push({ phrase });
-      }
+      if (phrase) underlineEntries.push({ phrase });
     }
 
     if (mode === "notes") {
-      noteInstructions.push({
-        raw: line,
-        color: currentAnnotationColor,
-        shimmer: currentAnnotationShimmer,
-      });
+      noteInstructions.push({ raw: line, color: currentAnnotationColor, shimmer: currentAnnotationShimmer });
     }
   }
 
   const passage = passageLines.join("\n").trim();
-
-  const firstLineFallback =
-    highlightEntries[0]?.phrase ||
-    stripOuterQuotes((passageLines[0] || "").trim()) ||
-    normalizeText(passage).split(".")[0] + ".";
-
-  const lastLineFallback =
-    highlightEntries[highlightEntries.length - 1]?.phrase ||
-    normalizeText(passage).split(".").filter(Boolean).slice(-1)[0]?.trim() + ".";
+  const firstLineFallback = highlightEntries[0]?.phrase || stripOuterQuotes((passageLines[0] || "").trim()) || normalizeText(passage).split(".")[0] + ".";
+  const lastLineFallback = highlightEntries[highlightEntries.length - 1]?.phrase || normalizeText(passage).split(".").filter(Boolean).slice(-1)[0]?.trim() + ".";
 
   const notes = noteInstructions.map((item) => {
     const raw = item.raw;
     const quoteMatches = [...raw.matchAll(/["“](.+?)["”]/g)].map((m) => m[1]);
-
     const writeMatch = raw.match(/^Write\s+(.+?)(?:\s+(above|next to|near)\s+(.+?))?(?:\s+with\s+(.+))?$/i);
 
     let text = "";
@@ -292,7 +251,7 @@ function parseSpec(specText) {
       decor,
       size: 30,
       rotation: text.toLowerCase() === "scandalous" ? -3 : 0,
-      font: defaultFontForNote(text),
+      font: defaultFontForNoteText(text),
       x: 0,
       y: 0,
     };
@@ -322,17 +281,11 @@ function findRanges(text, items, type) {
   items.forEach((item, index) => {
     const phrase = normalizeText(item.phrase);
     if (!phrase) return;
+
     const start = lower.indexOf(phrase.toLowerCase());
     if (start === -1) return;
 
-    ranges.push({
-      start,
-      end: start + phrase.length,
-      type,
-      phrase,
-      color: item.color || null,
-      id: `${type}-${index}`,
-    });
+    ranges.push({ start, end: start + phrase.length, type, phrase, color: item.color || null, id: `${type}-${index}` });
   });
 
   return ranges;
@@ -340,23 +293,14 @@ function findRanges(text, items, type) {
 
 function buildCharacterMap(passage, highlightItems, underlineItems) {
   const clean = normalizeText(passage);
-  const ranges = [
-    ...findRanges(clean, highlightItems, "highlight"),
-    ...findRanges(clean, underlineItems, "underline"),
-  ];
+  const ranges = [...findRanges(clean, highlightItems, "highlight"), ...findRanges(clean, underlineItems, "underline")];
 
   return [...clean].map((ch, index) => {
     const underline = ranges.find((range) => range.type === "underline" && index >= range.start && index < range.end);
     const highlight = ranges.find((range) => range.type === "highlight" && index >= range.start && index < range.end);
     const range = underline || highlight;
 
-    return {
-      ch,
-      type: range?.type || null,
-      phrase: range?.phrase || null,
-      color: range?.color || null,
-      rangeId: range?.id || null,
-    };
+    return { ch, type: range?.type || null, phrase: range?.phrase || null, color: range?.color || null, rangeId: range?.id || null };
   });
 }
 
@@ -374,6 +318,7 @@ function wrapLines(ctx, chars, maxWidth) {
 
   chars.forEach((item) => {
     const test = lineText + item.ch;
+
     if (ctx.measureText(test).width > maxWidth && line.length > 0 && item.ch !== " ") {
       const lastSpace = line.map((x) => x.ch).lastIndexOf(" ");
       if (lastSpace > 8) {
@@ -509,14 +454,7 @@ function buildLineSlots(lineCount, layout, noteSize) {
     const gapBottom = baseline + layout.lineHeight - Math.max(12, noteSize * 0.22);
     const gapHeight = Math.max(1, gapBottom - gapTop);
 
-    return {
-      lineIndex: index,
-      baseline,
-      gapTop,
-      gapBottom,
-      gapHeight,
-      noteBaseline: gapTop + gapHeight * 0.68,
-    };
+    return { lineIndex: index, baseline, gapTop, gapBottom, gapHeight, noteBaseline: gapTop + gapHeight * 0.68 };
   });
 }
 
@@ -524,20 +462,21 @@ function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
+function getNoteFontFamily(note) {
+  return NOTE_FONTS[note.font]?.family || NOTE_FONTS.patrickHand.family;
+}
+
 function measureNoteBox(note) {
   const measureCanvas = document.createElement("canvas");
   const ctx = measureCanvas.getContext("2d");
   const size = Number(note.size || 30);
-  ctx.font = canvasNoteFont(note, size);
+  ctx.font = `700 ${size}px ${getNoteFontFamily(note)}`;
   const baseWidth = ctx.measureText(note.text || "").width;
   let extra = 36;
   if (note.decor === "hearts") extra = 86;
   if (note.decor === "star") extra = 48;
 
-  return {
-    width: baseWidth + extra,
-    height: size + 18,
-  };
+  return { width: baseWidth + extra, height: size + 18 };
 }
 
 function findTargetBox(hitBoxes, target) {
@@ -574,14 +513,7 @@ function measureDocument(doc) {
     runs.forEach((run) => {
       const width = ctx.measureText(run.text).width;
       if (run.type === "highlight" || run.type === "underline") {
-        hitBoxes.push({
-          ...run,
-          x: cursor,
-          y: y - layout.fontSize,
-          width,
-          height: layout.fontSize + 14,
-          lineIndex,
-        });
+        hitBoxes.push({ ...run, x: cursor, y: y - layout.fontSize, width, height: layout.fontSize + 14, lineIndex });
       }
       cursor += width;
     });
@@ -620,13 +552,7 @@ function autoPlaceNotes(doc, notes) {
     for (const lineIndex of candidates) {
       const slot = lineSlots[lineIndex];
       const y = clamp(slot.noteBaseline - measure.height * 0.72, layout.safeTop, layout.safeBottom - measure.height);
-      const xOptions = [
-        preferredX,
-        layout.textX + layout.textW - measure.width,
-        layout.textX,
-        layout.safeRight - measure.width,
-        layout.safeLeft,
-      ];
+      const xOptions = [preferredX, layout.textX + layout.textW - measure.width, layout.textX, layout.safeRight - measure.width, layout.safeLeft];
 
       for (const rawX of xOptions) {
         const x = clamp(rawX, layout.safeLeft, layout.safeRight - measure.width);
@@ -651,12 +577,7 @@ function autoPlaceNotes(doc, notes) {
     }
 
     placed.push(chosen);
-
-    return {
-      ...note,
-      x: chosen.x,
-      y: chosen.y,
-    };
+    return { ...note, x: chosen.x, y: chosen.y };
   });
 }
 
@@ -753,15 +674,14 @@ function drawOneNote(ctx, note) {
   ctx.save();
   ctx.translate(note.x, note.y + fontSize * 0.84);
   ctx.rotate(((Number(note.rotation || 0)) * Math.PI) / 180);
-  ctx.font = canvasNoteFont(note, fontSize);
+  ctx.font = `700 ${fontSize}px ${getNoteFontFamily(note)}`;
   ctx.fillStyle = color.ink;
   ctx.shadowColor = color.glow;
   ctx.shadowBlur = shimmer.blur;
   ctx.fillText(note.text, 0, 0);
 
-  if (shimmer.sparks > 0) {
-    drawSpark(ctx, -18, -8, 12, color.ink, color.glow, shimmer.blur);
-  }
+  if (shimmer.sparks > 0) drawSpark(ctx, -18, -8, 12, color.ink, color.glow, shimmer.blur);
+
   if (shimmer.sparks > 1) {
     const w = ctx.measureText(note.text).width;
     drawSpark(ctx, w + 18, -14, 8, color.ink, color.glow, shimmer.blur);
@@ -781,7 +701,8 @@ function drawOneNote(ctx, note) {
   ctx.restore();
 }
 
-function drawScene(ctx, doc, notes) {
+function drawScene(ctx, doc, notes, options = {}) {
+  const { renderNotes = true } = options;
   const format = FORMATS[doc.format];
   const layout = layoutFor(format, doc.lineGap);
 
@@ -790,7 +711,7 @@ function drawScene(ctx, doc, notes) {
 
   ctx.save();
   drawText(ctx, doc);
-  notes.forEach((note) => drawOneNote(ctx, note));
+  if (renderNotes) notes.forEach((note) => drawOneNote(ctx, note));
   ctx.restore();
 }
 
@@ -805,7 +726,9 @@ async function exportCanvas(doc, notes) {
   if (document.fonts?.ready) {
     try {
       await document.fonts.ready;
-    } catch {}
+    } catch {
+      // keep exporting even if font readiness fails
+    }
   }
 
   const format = FORMATS[doc.format];
@@ -814,7 +737,7 @@ async function exportCanvas(doc, notes) {
   canvas.height = format.height;
   const ctx = canvas.getContext("2d");
 
-  drawScene(ctx, doc, notes);
+  drawScene(ctx, doc, notes, { renderNotes: true });
 
   const filename = `${sanitizeFilename(doc.saveTitle)}.png`;
 
@@ -850,12 +773,7 @@ function NoteOverlay({ note, scale, selected, onSelect, onMove }) {
     event.preventDefault();
     event.stopPropagation();
     onSelect(note.id);
-    startRef.current = {
-      px: event.clientX,
-      py: event.clientY,
-      x: note.x,
-      y: note.y,
-    };
+    startRef.current = { px: event.clientX, py: event.clientY, x: note.x, y: note.y };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -885,9 +803,8 @@ function NoteOverlay({ note, scale, selected, onSelect, onMove }) {
         left: note.x * scale,
         top: note.y * scale,
         transform: `rotate(${note.rotation || 0}deg)`,
-        fontFamily: noteFont(note).family,
-        fontWeight: noteFont(note).weight || 400,
-        letterSpacing: 0,
+        fontFamily: getNoteFontFamily(note),
+        fontWeight: 700,
         fontSize: note.size * scale,
         lineHeight: 1,
         color: color.ink,
@@ -901,20 +818,13 @@ function NoteOverlay({ note, scale, selected, onSelect, onMove }) {
       }}
     >
       {note.shimmer !== "off" && (
-        <span style={{ position: "absolute", left: -16 * scale, top: -10 * scale, fontSize: 14 * scale }}>
-          ✦
-        </span>
+        <span style={{ position: "absolute", left: -16 * scale, top: -10 * scale, fontSize: 14 * scale }}>✦</span>
       )}
 
       <span>{note.text}</span>
 
-      {note.decor === "hearts" && (
-        <span style={{ marginLeft: 6 * scale, fontSize: note.size * 0.72 * scale }}>💕</span>
-      )}
-
-      {note.decor === "star" && (
-        <span style={{ marginLeft: 6 * scale, fontSize: note.size * 0.65 * scale }}>✦</span>
-      )}
+      {note.decor === "hearts" && <span style={{ marginLeft: 6 * scale, fontSize: note.size * 0.72 * scale }}>💕</span>}
+      {note.decor === "star" && <span style={{ marginLeft: 6 * scale, fontSize: note.size * 0.65 * scale }}>✦</span>}
     </div>
   );
 }
@@ -922,15 +832,7 @@ function NoteOverlay({ note, scale, selected, onSelect, onMove }) {
 function Field({ label, children }) {
   return (
     <label style={{ display: "block", marginBottom: 12 }}>
-      <div
-        style={{
-          fontSize: 11,
-          textTransform: "uppercase",
-          letterSpacing: ".16em",
-          color: "#bda98b",
-          marginBottom: 6,
-        }}
-      >
+      <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".16em", color: "#bda98b", marginBottom: 6 }}>
         {label}
       </div>
       {children}
@@ -974,13 +876,12 @@ export default function App() {
   const [doc, setDoc] = useState(() => parseSpec(DEFAULT_SPEC));
   const [notes, setNotes] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  const [previewWidth, setPreviewWidth] = useState(620);
   const canvasRef = useRef(null);
 
   useEffect(() => {
     const style = document.createElement("style");
-    style.innerHTML = `
-      @import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Shadows+Into+Light&family=Indie+Flower&family=Kalam:wght@300;400;700&family=Permanent+Marker&family=Dancing+Script:wght@400;700&family=Gloria+Hallelujah&family=Satisfy&family=Pacifico&display=swap');
-    `;
+    style.innerHTML = `@import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Indie+Flower&family=Shadows+Into+Light&family=Kalam:wght@300;400;700&family=Dancing+Script:wght@400;700&family=Permanent+Marker&display=swap');`;
     document.head.appendChild(style);
 
     if (document.fonts?.ready) {
@@ -1001,13 +902,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (fontReady) {
-      buildFromSpec(DEFAULT_SPEC);
-    }
+    if (fontReady) buildFromSpec(DEFAULT_SPEC);
   }, [fontReady, buildFromSpec]);
 
   const format = FORMATS[doc.format];
-  const scale = PREVIEW_WIDTH / format.width;
+  const scale = previewWidth / format.width;
   const previewHeight = format.height * scale;
   const selectedNote = notes.find((note) => note.id === selectedId) || null;
 
@@ -1017,7 +916,8 @@ export default function App() {
     canvas.width = format.width;
     canvas.height = format.height;
     const ctx = canvas.getContext("2d");
-    drawScene(ctx, doc, notes);
+    // Preview canvas is text-only. Notes are shown once as draggable HTML overlays.
+    drawScene(ctx, doc, [], { renderNotes: false });
   }, [doc, notes, format.width, format.height]);
 
   const updateDoc = (key, value) => {
@@ -1046,12 +946,7 @@ export default function App() {
 
   const duplicateSelected = () => {
     if (!selectedNote) return;
-    const copy = {
-      ...selectedNote,
-      id: uid(),
-      x: selectedNote.x + 22,
-      y: selectedNote.y + 22,
-    };
+    const copy = { ...selectedNote, id: uid(), x: selectedNote.x + 22, y: selectedNote.y + 22 };
     setNotes((old) => [...old, copy]);
     setSelectedId(copy.id);
   };
@@ -1081,9 +976,7 @@ export default function App() {
     setSelectedId(note.id);
   };
 
-  const rebuildFromPrompt = () => {
-    buildFromSpec(specText);
-  };
+  const rebuildFromPrompt = () => buildFromSpec(specText);
 
   const exportPNG = async () => {
     await exportCanvas(doc, notes);
@@ -1091,79 +984,28 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#17120f", color: "#efe2cf" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "14px 18px",
-          borderBottom: "1px solid rgba(255,255,255,.08)",
-          background: "rgba(0,0,0,.22)",
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.22)" }}>
         <div>
-          <div style={{ fontSize: 14, letterSpacing: ".18em", textTransform: "uppercase", color: "#f0cfaa" }}>
-            Kindle Annotation Builder
-          </div>
-          <div style={{ fontSize: 11, color: "#a9967c" }}>
-            Paste one prompt block. Click Build. The app handles the rest.
-          </div>
+          <div style={{ fontSize: 14, letterSpacing: ".18em", textTransform: "uppercase", color: "#f0cfaa" }}>Kindle Annotation Builder</div>
+          <div style={{ fontSize: 11, color: "#a9967c" }}>Preview is zoomable. Notes are HTML-only in preview. Export burns notes into the PNG.</div>
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={rebuildFromPrompt} style={toolBtn}>
-            Build Screenshot
-          </button>
-          <button
-            onClick={exportPNG}
-            style={{
-              background: "#ff4fcf",
-              color: "#111",
-              border: "none",
-              borderRadius: 8,
-              padding: "10px 16px",
-              fontWeight: 700,
-              cursor: "pointer",
-              boxShadow: "0 0 20px rgba(255,20,184,.28)",
-            }}
-          >
-            Export PNG
-          </button>
+          <button onClick={rebuildFromPrompt} style={toolBtn}>Build Screenshot</button>
+          <button onClick={exportPNG} style={{ background: "#ff4fcf", color: "#111", border: "none", borderRadius: 8, padding: "10px 16px", fontWeight: 700, cursor: "pointer", boxShadow: "0 0 20px rgba(255,20,184,.28)" }}>Export PNG</button>
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "430px 1fr 320px",
-          minHeight: "calc(100vh - 66px)",
-        }}
-      >
-        <div
-          style={{
-            padding: 16,
-            borderRight: "1px solid rgba(255,255,255,.08)",
-            background: "rgba(0,0,0,.08)",
-            overflowY: "auto",
-          }}
-        >
+      <div style={{ display: "grid", gridTemplateColumns: "430px 1fr 320px", minHeight: "calc(100vh - 66px)" }}>
+        <div style={{ padding: 16, borderRight: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.08)", overflowY: "auto" }}>
           <Field label="Paste the full prompt block">
-            <textarea
-              value={specText}
-              onChange={(e) => setSpecText(e.target.value)}
-              rows={18}
-              style={textareaStyle}
-            />
+            <textarea value={specText} onChange={(e) => setSpecText(e.target.value)} rows={18} style={textareaStyle} />
           </Field>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Field label="Format">
               <select value={doc.format} onChange={(e) => updateDoc("format", e.target.value)} style={inputStyle}>
-                {Object.values(FORMATS).map((item) => (
-                  <option key={item.key} value={item.key}>
-                    {item.label}
-                  </option>
-                ))}
+                {Object.values(FORMATS).map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
               </select>
             </Field>
 
@@ -1174,130 +1016,46 @@ export default function App() {
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Field label={`Line space (${doc.lineGap}px)`}>
-              <input
-                type="range"
-                min="10"
-                max="44"
-                value={doc.lineGap}
-                onChange={(e) => updateDoc("lineGap", Number(e.target.value))}
-                style={{ width: "100%" }}
-              />
+              <input type="range" min="10" max="44" value={doc.lineGap} onChange={(e) => updateDoc("lineGap", Number(e.target.value))} style={{ width: "100%" }} />
             </Field>
 
             <Field label={`Default note size (${doc.noteSize}px)`}>
-              <input
-                type="range"
-                min="22"
-                max="44"
-                value={doc.noteSize}
-                onChange={(e) => updateDoc("noteSize", Number(e.target.value))}
-                style={{ width: "100%" }}
-              />
+              <input type="range" min="22" max="44" value={doc.noteSize} onChange={(e) => updateDoc("noteSize", Number(e.target.value))} style={{ width: "100%" }} />
+            </Field>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
+            <Field label={`Preview zoom (${previewWidth}px wide)`}>
+              <input type="range" min="430" max="900" value={previewWidth} onChange={(e) => setPreviewWidth(Number(e.target.value))} style={{ width: "100%" }} />
             </Field>
           </div>
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button onClick={rebuildFromPrompt} style={toolBtn}>
-              Rebuild Notes
-            </button>
-            <button onClick={addNote} style={toolBtn}>
-              Add Note
-            </button>
-            <button
-              onClick={exportPNG}
-              style={{ ...toolBtn, background: "#ff4fcf", color: "#111", fontWeight: 700 }}
-            >
-              Export PNG
-            </button>
+            <button onClick={rebuildFromPrompt} style={toolBtn}>Rebuild Notes</button>
+            <button onClick={addNote} style={toolBtn}>Add Note</button>
+            <button onClick={exportPNG} style={{ ...toolBtn, background: "#ff4fcf", color: "#111", fontWeight: 700 }}>Export PNG</button>
           </div>
 
-          <div
-            style={{
-              marginTop: 12,
-              padding: 12,
-              borderRadius: 10,
-              background: "rgba(255,79,207,.10)",
-              border: "1px solid rgba(255,79,207,.25)",
-              fontSize: 12,
-              lineHeight: 1.45,
-              color: "#ffd6f3",
-            }}
-          >
-            Supported sections:
-            <br />
-            - <b>Copy this text:</b>
-            <br />
-            - <b>Highlight in YELLOW:</b> or any other supported color
-            <br />
-            - <b>Dotted underline:</b>
-            <br />
-            - <b>Glitter neon pink annotations:</b>
-            <br />
-            <br />
-            It also supports multiple highlight sections with different colors.
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,79,207,.10)", border: "1px solid rgba(255,79,207,.25)", fontSize: 12, lineHeight: 1.45, color: "#ffd6f3" }}>
+            Fixed: the canvas preview no longer draws notes. Only the draggable HTML notes show in preview. Export still draws the notes into the PNG.
           </div>
         </div>
 
-        <div
-          style={{
-            padding: 18,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            overflow: "auto",
-          }}
-        >
-          <div style={{ fontSize: 12, color: "#a9967c", marginBottom: 10 }}>
-            Drag notes anywhere inside the Kindle page.
-          </div>
+        <div style={{ padding: 18, display: "flex", flexDirection: "column", alignItems: "center", overflow: "auto" }}>
+          <div style={{ fontSize: 12, color: "#a9967c", marginBottom: 10 }}>Drag notes anywhere inside the Kindle page.</div>
 
-          <div
-            onClick={() => setSelectedId(null)}
-            style={{
-              position: "relative",
-              width: PREVIEW_WIDTH,
-              height: previewHeight,
-              borderRadius: 24,
-              overflow: "hidden",
-              boxShadow: "0 20px 60px rgba(0,0,0,.45)",
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              style={{
-                width: PREVIEW_WIDTH,
-                height: previewHeight,
-                display: "block",
-              }}
-            />
+          <div onClick={() => setSelectedId(null)} style={{ position: "relative", width: previewWidth, height: previewHeight, borderRadius: 24, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,.45)" }}>
+            <canvas ref={canvasRef} style={{ width: previewWidth, height: previewHeight, display: "block" }} />
 
             {notes.map((note) => (
-              <NoteOverlay
-                key={note.id}
-                note={note}
-                scale={scale}
-                selected={selectedId === note.id}
-                onSelect={setSelectedId}
-                onMove={moveNote}
-              />
+              <NoteOverlay key={note.id} note={note} scale={scale} selected={selectedId === note.id} onSelect={setSelectedId} onMove={moveNote} />
             ))}
           </div>
         </div>
 
-        <div
-          style={{
-            padding: 16,
-            borderLeft: "1px solid rgba(255,255,255,.08)",
-            background: "rgba(0,0,0,.08)",
-            overflowY: "auto",
-          }}
-        >
-          <div style={{ fontSize: 14, textTransform: "uppercase", letterSpacing: ".16em", color: "#f0cfaa", marginBottom: 4 }}>
-            Selected note
-          </div>
-          <div style={{ fontSize: 12, color: "#a9967c", marginBottom: 12 }}>
-            {selectedNote ? "Edit the selected note." : "Click a note to edit it."}
-          </div>
+        <div style={{ padding: 16, borderLeft: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.08)", overflowY: "auto" }}>
+          <div style={{ fontSize: 14, textTransform: "uppercase", letterSpacing: ".16em", color: "#f0cfaa", marginBottom: 4 }}>Selected note</div>
+          <div style={{ fontSize: 12, color: "#a9967c", marginBottom: 12 }}>{selectedNote ? "Edit the selected note." : "Click a note to edit it."}</div>
 
           {selectedNote ? (
             <>
@@ -1312,21 +1070,13 @@ export default function App() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <Field label="Color">
                   <select value={selectedNote.color} onChange={(e) => updateNote(selectedNote.id, { color: e.target.value })} style={inputStyle}>
-                    {Object.entries(NOTE_COLORS).map(([key, value]) => (
-                      <option key={key} value={key}>
-                        {value.label}
-                      </option>
-                    ))}
+                    {Object.entries(NOTE_COLORS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
                   </select>
                 </Field>
 
                 <Field label="Font">
                   <select value={selectedNote.font || "patrickHand"} onChange={(e) => updateNote(selectedNote.id, { font: e.target.value })} style={inputStyle}>
-                    {Object.entries(NOTE_FONTS).map(([key, value]) => (
-                      <option key={key} value={key}>
-                        {value.label}
-                      </option>
-                    ))}
+                    {Object.entries(NOTE_FONTS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
                   </select>
                 </Field>
               </div>
@@ -1334,62 +1084,36 @@ export default function App() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <Field label="Shimmer">
                   <select value={selectedNote.shimmer} onChange={(e) => updateNote(selectedNote.id, { shimmer: e.target.value })} style={inputStyle}>
-                    {Object.entries(SHIMMER_LEVELS).map(([key, value]) => (
-                      <option key={key} value={key}>
-                        {value.label}
-                      </option>
-                    ))}
+                    {Object.entries(SHIMMER_LEVELS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
                   </select>
                 </Field>
 
                 <Field label="Decor">
                   <select value={selectedNote.decor} onChange={(e) => updateNote(selectedNote.id, { decor: e.target.value })} style={inputStyle}>
-                    {Object.entries(DECOR_OPTIONS).map(([key, value]) => (
-                      <option key={key} value={key}>
-                        {value.label}
-                      </option>
-                    ))}
+                    {Object.entries(DECOR_OPTIONS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
                   </select>
                 </Field>
               </div>
 
-              <Field label={`Rotation (${selectedNote.rotation || 0}°)`}>
-                <input
-                  type="range"
-                  min="-20"
-                  max="20"
-                  value={selectedNote.rotation || 0}
-                  onChange={(e) => updateNote(selectedNote.id, { rotation: Number(e.target.value) })}
-                  style={{ width: "100%" }}
-                />
-              </Field>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label={`Rotation (${selectedNote.rotation || 0}°)`}>
+                  <input type="range" min="-20" max="20" value={selectedNote.rotation || 0} onChange={(e) => updateNote(selectedNote.id, { rotation: Number(e.target.value) })} style={{ width: "100%" }} />
+                </Field>
 
-              <Field label={`Size (${selectedNote.size}px)`}>
-                <input
-                  type="range"
-                  min="22"
-                  max="44"
-                  value={selectedNote.size}
-                  onChange={(e) => updateNote(selectedNote.id, { size: Number(e.target.value) })}
-                  style={{ width: "100%" }}
-                />
-              </Field>
+                <Field label={`Size (${selectedNote.size}px)`}>
+                  <input type="range" min="22" max="44" value={selectedNote.size} onChange={(e) => updateNote(selectedNote.id, { size: Number(e.target.value) })} style={{ width: "100%" }} />
+                </Field>
+              </div>
 
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button onClick={duplicateSelected} style={toolBtn}>
-                  Duplicate
-                </button>
-                <button onClick={deleteSelected} style={{ ...toolBtn, background: "#6d1515" }}>
-                  Delete
-                </button>
+                <button onClick={duplicateSelected} style={toolBtn}>Duplicate</button>
+                <button onClick={deleteSelected} style={{ ...toolBtn, background: "#6d1515" }}>Delete</button>
               </div>
             </>
           ) : (
             <div style={{ fontSize: 12, color: "#a9967c", lineHeight: 1.45 }}>
-              Paste the block on the left.
-              <br />
-              Click <b>Build Screenshot</b>.
-              <br />
+              Paste the block on the left.<br />
+              Click <b>Build Screenshot</b>.<br />
               Then drag notes or tweak them here.
             </div>
           )}
