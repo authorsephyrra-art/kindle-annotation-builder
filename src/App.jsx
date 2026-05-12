@@ -77,6 +77,7 @@ const GENRE_PRESETS = {
     noteColor: "neonPink",
     highlightColor: "yellow",
     noteFont: "patrickHand",
+    pageTheme: "cream",
     decors: ["hearts", "star", "sparkle", "crown", "fan", "rose", "teacup", "ring"],
   },
   darkRomance: {
@@ -84,6 +85,7 @@ const GENRE_PRESETS = {
     noteColor: "bloodRed",
     highlightColor: "pink",
     noteFont: "permanentMarker",
+    pageTheme: "dark",
     decors: ["hearts", "claw", "wolf", "moon", "blood", "chain", "flame", "star"],
   },
   darkHorror: {
@@ -91,6 +93,7 @@ const GENRE_PRESETS = {
     noteColor: "bloodRed",
     highlightColor: "purple",
     noteFont: "kalam",
+    pageTheme: "black",
     decors: ["blood", "knife", "skull", "wolf", "moon", "chain", "claw", "ghost", "star"],
   },
   horror: {
@@ -98,11 +101,77 @@ const GENRE_PRESETS = {
     noteColor: "acidGreen",
     highlightColor: "blue",
     noteFont: "shadowsIntoLight",
+    pageTheme: "black",
     decors: ["skull", "knife", "blood", "ghost", "web", "stitches", "eye", "window", "cross"],
   },
 };
 
-const PAGE_COLOR = "#fff7e6";
+const PAGE_THEMES = {
+  cream: {
+    label: "Cream Kindle",
+    bg0: "#d6cabd",
+    bg1: "#8a7e74",
+    frameOuter: "#111111",
+    frameInner: "#262626",
+    page: "#fff7e6",
+    pageLine: "rgba(90,70,40,.043)",
+    text: "#111111",
+    muted: "#7a6b59",
+    footer: "#171717",
+  },
+  parchment: {
+    label: "Old Parchment",
+    bg0: "#b79b72",
+    bg1: "#5c4635",
+    frameOuter: "#15100c",
+    frameInner: "#2b2119",
+    page: "#f1dfb8",
+    pageLine: "rgba(70,44,18,.06)",
+    text: "#1d130c",
+    muted: "#7f6040",
+    footer: "#20150e",
+  },
+  dark: {
+    label: "Dark Romance",
+    bg0: "#2b1416",
+    bg1: "#080607",
+    frameOuter: "#060606",
+    frameInner: "#191313",
+    page: "#141010",
+    pageLine: "rgba(255,255,255,.035)",
+    text: "#f5eadc",
+    muted: "#b59d88",
+    footer: "#f5eadc",
+  },
+  black: {
+    label: "Black Horror",
+    bg0: "#171717",
+    bg1: "#000000",
+    frameOuter: "#050505",
+    frameInner: "#101010",
+    page: "#070707",
+    pageLine: "rgba(255,255,255,.04)",
+    text: "#f2eee7",
+    muted: "#b9aa96",
+    footer: "#f2eee7",
+  },
+  blood: {
+    label: "Blood Black",
+    bg0: "#1b0508",
+    bg1: "#000000",
+    frameOuter: "#050000",
+    frameInner: "#170508",
+    page: "#090304",
+    pageLine: "rgba(255,40,70,.035)",
+    text: "#f8eee8",
+    muted: "#d09a9d",
+    footer: "#f8eee8",
+  },
+};
+
+function getPageTheme(doc) {
+  return PAGE_THEMES[doc.pageTheme] || PAGE_THEMES.cream;
+}
 
 const DEFAULT_SPEC = `PASSAGE 3 — "Maze Heat" (Chapter 13, Yellow)
 
@@ -417,6 +486,7 @@ function parseSpec(specText, genreKey = "regency") {
     lineGap: 22,
     paragraphGap: 0,
     noteSize: 30,
+    pageTheme: genrePreset.pageTheme || "cream",
     genre: genreKey,
     passage,
     highlights: highlightEntries,
@@ -774,29 +844,30 @@ function autoPlaceNotes(doc, notes) {
   });
 }
 
-function drawFrame(ctx, format, layout) {
+function drawFrame(ctx, format, layout, doc) {
   const { width, height } = format;
   const outerPad = Math.max(32, Math.round(width * 0.038));
+  const theme = getPageTheme(doc);
 
   const bg = ctx.createLinearGradient(0, 0, width, height);
-  bg.addColorStop(0, "#d6cabd");
-  bg.addColorStop(1, "#8a7e74");
+  bg.addColorStop(0, theme.bg0);
+  bg.addColorStop(1, theme.bg1);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, height);
 
-  ctx.fillStyle = "#111111";
+  ctx.fillStyle = theme.frameOuter;
   roundRect(ctx, outerPad, outerPad, width - outerPad * 2, height - outerPad * 2, 52);
   ctx.fill();
 
-  ctx.fillStyle = "#262626";
+  ctx.fillStyle = theme.frameInner;
   roundRect(ctx, outerPad + 18, outerPad + 18, width - (outerPad + 18) * 2, height - (outerPad + 18) * 2, 38);
   ctx.fill();
 
-  ctx.fillStyle = PAGE_COLOR;
+  ctx.fillStyle = theme.page;
   roundRect(ctx, layout.page.x, layout.page.y, layout.page.w, layout.page.h, 8);
   ctx.fill();
 
-  ctx.fillStyle = "rgba(90,70,40,.043)";
+  ctx.fillStyle = theme.pageLine;
   for (let y = layout.page.y; y < layout.page.y + layout.page.h; y += 4) {
     ctx.fillRect(layout.page.x, y, layout.page.w, 1);
   }
@@ -805,9 +876,10 @@ function drawFrame(ctx, format, layout) {
 function drawText(ctx, doc) {
   const format = FORMATS[doc.format];
   const layout = layoutFor(format, doc.lineGap);
+  const theme = getPageTheme(doc);
   const paragraphMaps = buildCharacterMap(doc.passage, doc.highlights, doc.underlines);
 
-  ctx.fillStyle = "#7a6b59";
+  ctx.fillStyle = theme.muted;
   ctx.font = "italic 20px Georgia, serif";
   ctx.fillText(`${doc.chapter} · ${doc.title}`, layout.textX, layout.headerY);
 
@@ -835,7 +907,7 @@ function drawText(ctx, doc) {
         ctx.fillRect(cursor - 3, y - layout.fontSize + 2, width + 6, layout.lineHeight - 2);
       }
 
-      ctx.fillStyle = "#111111";
+      ctx.fillStyle = theme.text;
       ctx.fillText(run.text, cursor, y);
 
       if (run.type === "underline") {
@@ -859,7 +931,7 @@ function drawText(ctx, doc) {
   });
 
   ctx.textAlign = "center";
-  ctx.fillStyle = "#171717";
+  ctx.fillStyle = theme.footer;
   ctx.font = "700 28px Arial, sans-serif";
   ctx.fillText(doc.footer, format.width / 2, layout.footerY);
 }
@@ -908,7 +980,7 @@ function drawScene(ctx, doc, notes, options = {}) {
   const layout = layoutFor(format, doc.lineGap);
 
   ctx.clearRect(0, 0, format.width, format.height);
-  drawFrame(ctx, format, layout);
+  drawFrame(ctx, format, layout, doc);
 
   ctx.save();
   drawText(ctx, doc);
@@ -1182,7 +1254,12 @@ export default function App() {
 
   const applyGenrePreset = (genreKey) => {
     setSelectedGenre(genreKey);
-    setDoc((old) => ({ ...old, genre: genreKey, defaultHighlightColor: getGenrePreset(genreKey).highlightColor }));
+    setDoc((old) => ({
+      ...old,
+      genre: genreKey,
+      defaultHighlightColor: getGenrePreset(genreKey).highlightColor,
+      pageTheme: getGenrePreset(genreKey).pageTheme || old.pageTheme || "cream",
+    }));
   };
 
   const rebuildFromPrompt = () => buildFromSpec(specText, selectedGenre);
@@ -1224,6 +1301,12 @@ export default function App() {
               </select>
             </Field>
           </div>
+
+          <Field label="Page / background">
+            <select value={doc.pageTheme || "cream"} onChange={(e) => updateDoc("pageTheme", e.target.value)} style={inputStyle}>
+              {Object.entries(PAGE_THEMES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+            </select>
+          </Field>
 
           <Field label="Save filename">
             <input value={doc.saveTitle} onChange={(e) => updateDoc("saveTitle", e.target.value)} style={inputStyle} />
