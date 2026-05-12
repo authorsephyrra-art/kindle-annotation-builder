@@ -104,6 +104,39 @@ const GENRE_PRESETS = {
 
 const PAGE_COLOR = "#fff7e6";
 
+const PAGE_THEMES = {
+  offwhite: {
+    label: "Offwhite",
+    page: "#fff7e6",
+    text: "#111111",
+    muted: "#7a6b59",
+    footer: "#171717",
+    grain: "rgba(90,70,40,.043)",
+  },
+  white: {
+    label: "White",
+    page: "#ffffff",
+    text: "#111111",
+    muted: "#6f6f6f",
+    footer: "#111111",
+    grain: "rgba(0,0,0,.026)",
+  },
+  black: {
+    label: "Black",
+    page: "#080808",
+    text: "#f7f2e8",
+    muted: "#b9ad9c",
+    footer: "#f7f2e8",
+    grain: "rgba(255,255,255,.035)",
+  },
+};
+
+function getPageTheme(doc) {
+  return PAGE_THEMES[doc?.pageTheme] || PAGE_THEMES.offwhite;
+}
+
+const PARAGRAPH_GAP_RATIO = 0.35;
+
 const DEFAULT_SPEC = `PASSAGE 3 — "Maze Heat" (Chapter 13, Yellow)
 
 Copy this text:
@@ -418,6 +451,7 @@ function parseSpec(specText, genreKey = "regency") {
     format: "story",
     lineGap: 22,
     noteSize: 30,
+    pageTheme: "offwhite",
     genre: genreKey,
     passage,
     highlights: highlightEntries,
@@ -626,6 +660,25 @@ function buildLineSlots(lineCount, layout, noteSize) {
   });
 }
 
+function buildLineSlotsFromBaselines(baselines, layout, noteSize) {
+  return baselines.map((baseline, index) => {
+    const nextBaseline = baselines[index + 1] || baseline + layout.lineHeight;
+    const effectiveLineHeight = Math.max(layout.lineHeight * 0.72, nextBaseline - baseline);
+    const gapTop = baseline + Math.max(10, noteSize * 0.14);
+    const gapBottom = baseline + effectiveLineHeight - Math.max(12, noteSize * 0.22);
+    const gapHeight = Math.max(1, gapBottom - gapTop);
+
+    return {
+      lineIndex: index,
+      baseline,
+      gapTop,
+      gapBottom,
+      gapHeight,
+      noteBaseline: gapTop + gapHeight * 0.68,
+    };
+  });
+}
+
 function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
@@ -674,12 +727,15 @@ function measureDocument(doc) {
 
   let y = layout.textY;
   let visualLineIndex = 0;
+  const baselines = [];
 
   lines.forEach((line) => {
     if (line.paragraphBreak) {
-      y += Math.round(layout.lineHeight * 0.62);
+      y += Math.round(layout.lineHeight * PARAGRAPH_GAP_RATIO);
       return;
     }
+
+    baselines.push(y);
 
     const runs = lineToRuns(line);
     let cursor = layout.textX;
@@ -696,7 +752,7 @@ function measureDocument(doc) {
     visualLineIndex += 1;
   });
 
-  const lineSlots = buildLineSlots(visualLineIndex, layout, Number(doc.noteSize || 30));
+  const lineSlots = buildLineSlotsFromBaselines(baselines, layout, Number(doc.noteSize || 30));
   return { format, layout, lines, hitBoxes, lineSlots };
 }
 
@@ -756,9 +812,10 @@ function autoPlaceNotes(doc, notes) {
   });
 }
 
-function drawFrame(ctx, format, layout) {
+function drawFrame(ctx, format, layout, doc = {}) {
   const { width, height } = format;
   const outerPad = Math.max(32, Math.round(width * 0.038));
+  const pageTheme = getPageTheme(doc);
 
   const bg = ctx.createLinearGradient(0, 0, width, height);
   bg.addColorStop(0, "#d6cabd");
@@ -774,11 +831,11 @@ function drawFrame(ctx, format, layout) {
   roundRect(ctx, outerPad + 18, outerPad + 18, width - (outerPad + 18) * 2, height - (outerPad + 18) * 2, 38);
   ctx.fill();
 
-  ctx.fillStyle = PAGE_COLOR;
+  ctx.fillStyle = pageTheme.page;
   roundRect(ctx, layout.page.x, layout.page.y, layout.page.w, layout.page.h, 8);
   ctx.fill();
 
-  ctx.fillStyle = "rgba(90,70,40,.043)";
+  ctx.fillStyle = pageTheme.grain;
   for (let y = layout.page.y; y < layout.page.y + layout.page.h; y += 4) {
     ctx.fillRect(layout.page.x, y, layout.page.w, 1);
   }
@@ -788,8 +845,9 @@ function drawText(ctx, doc) {
   const format = FORMATS[doc.format];
   const layout = layoutFor(format, doc.lineGap);
   const paragraphMaps = buildCharacterMap(doc.passage, doc.highlights, doc.underlines);
+  const pageTheme = getPageTheme(doc);
 
-  ctx.fillStyle = "#7a6b59";
+  ctx.fillStyle = pageTheme.muted;
   ctx.font = "italic 20px Georgia, serif";
   ctx.fillText(`${doc.chapter} · ${doc.title}`, layout.textX, layout.headerY);
 
@@ -801,7 +859,7 @@ function drawText(ctx, doc) {
 
   lines.forEach((line) => {
     if (line.paragraphBreak) {
-      y += Math.round(layout.lineHeight * 0.62);
+      y += Math.round(layout.lineHeight * PARAGRAPH_GAP_RATIO);
       return;
     }
 
@@ -817,7 +875,7 @@ function drawText(ctx, doc) {
         ctx.fillRect(cursor - 3, y - layout.fontSize + 6, width + 6, layout.fontSize + 8);
       }
 
-      ctx.fillStyle = "#111111";
+      ctx.fillStyle = pageTheme.text;
       ctx.fillText(run.text, cursor, y);
 
       if (run.type === "underline") {
@@ -841,7 +899,7 @@ function drawText(ctx, doc) {
   });
 
   ctx.textAlign = "center";
-  ctx.fillStyle = "#171717";
+  ctx.fillStyle = pageTheme.footer;
   ctx.font = "700 28px Arial, sans-serif";
   ctx.fillText(doc.footer, format.width / 2, layout.footerY);
 }
@@ -890,7 +948,7 @@ function drawScene(ctx, doc, notes, options = {}) {
   const layout = layoutFor(format, doc.lineGap);
 
   ctx.clearRect(0, 0, format.width, format.height);
-  drawFrame(ctx, format, layout);
+  drawFrame(ctx, format, layout, doc);
 
   ctx.save();
   drawText(ctx, doc);
@@ -1178,7 +1236,7 @@ export default function App() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.22)" }}>
         <div>
           <div style={{ fontSize: 14, letterSpacing: ".18em", textTransform: "uppercase", color: "#f0cfaa" }}>Kindle Annotation Builder</div>
-          <div style={{ fontSize: 11, color: "#a9967c" }}>Preview is zoomable. Notes are HTML-only in preview. Export burns notes into the PNG. Genre presets now switch the decor vibe too.</div>
+          <div style={{ fontSize: 11, color: "#a9967c" }}>Preview is zoomable. Notes are HTML-only in preview. Export burns notes into the PNG. Genre presets and page background are editable.</div>
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
@@ -1207,6 +1265,12 @@ export default function App() {
             </Field>
           </div>
 
+          <Field label="Page background">
+            <select value={doc.pageTheme || "offwhite"} onChange={(e) => updateDoc("pageTheme", e.target.value)} style={inputStyle}>
+              {Object.entries(PAGE_THEMES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+            </select>
+          </Field>
+
           <Field label="Save filename">
             <input value={doc.saveTitle} onChange={(e) => updateDoc("saveTitle", e.target.value)} style={inputStyle} />
           </Field>
@@ -1234,7 +1298,7 @@ export default function App() {
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,79,207,.10)", border: "1px solid rgba(255,79,207,.25)", fontSize: 12, lineHeight: 1.45, color: "#ffd6f3" }}>
-            Genre presets now work for Regency Romance, Dark Romance, Dark Horror Romance, and Horror. Build Screenshot will re-read your pasted block using the selected preset. The canvas preview still stays text-only, so the draggable notes are the only notes you see in preview.
+            Genre presets now work for Regency Romance, Dark Romance, Dark Horror Romance, and Horror. You can also switch the page background between white, offwhite, and black. Black uses white page text automatically.
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)", fontSize: 12, lineHeight: 1.5, color: "#efe2cf" }}>
