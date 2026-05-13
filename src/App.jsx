@@ -522,7 +522,7 @@ function findRanges(text, items, type) {
 
 function buildCharacterMap(passage, highlightItems, underlineItems) {
   const paragraphs = (passage || "")
-    .split(/\n\s*\n/)
+    .split(/\n+/)
     .map((part) => normalizeInlineText(part))
     .filter(Boolean);
 
@@ -1504,7 +1504,7 @@ export default function App() {
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,79,207,.10)", border: "1px solid rgba(255,79,207,.25)", fontSize: 12, lineHeight: 1.45, color: "#ffd6f3" }}>
-            Genre presets now work for Regency, Dark Romance, Dark Horror Romance, and Horror. Locked settings stay the same for every new passage until you reset them. Export can auto-crop and remove the Kindle border.
+            Genre presets now work for Regency, Dark Romance, Dark Horror Romance, and Horror. Single line breaks are preserved, so speaker changes stay on separate lines. Locked settings stay the same until you reset them.
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)", fontSize: 12, lineHeight: 1.5, color: "#efe2cf" }}>
