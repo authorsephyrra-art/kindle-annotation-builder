@@ -486,6 +486,12 @@ function parseSpec(specText, genreKey = "regency") {
     lineGap: 22,
     paragraphGap: 0,
     noteSize: 30,
+    highlightPadding: 8,
+    cropToContent: true,
+    hideKindleFrame: true,
+    lockedNoteFont: genrePreset.noteFont,
+    lockedNoteColor: genrePreset.noteColor,
+    lockedShimmer: "strong",
     pageTheme: genrePreset.pageTheme || "cream",
     genre: genreKey,
     passage,
@@ -904,7 +910,8 @@ function drawText(ctx, doc) {
       if (run.type === "highlight") {
         const fill = HIGHLIGHT_COLORS[run.color || doc.defaultHighlightColor || "yellow"]?.fill || HIGHLIGHT_COLORS.yellow.fill;
         ctx.fillStyle = fill;
-        ctx.fillRect(cursor - 3, y - layout.fontSize + 2, width + 6, layout.lineHeight - 2);
+        const highlightHeight = layout.fontSize + Number(doc.highlightPadding ?? 8);
+        ctx.fillRect(cursor - 3, y - layout.fontSize + 6, width + 6, highlightHeight);
       }
 
       ctx.fillStyle = theme.text;
@@ -995,6 +1002,55 @@ function shimmerStyle(note) {
   return `0 0 ${Math.max(4, shimmer.blur)}px ${color.glow}, 0 0 ${Math.max(10, shimmer.blur + 4)}px ${color.glow}`;
 }
 
+
+function getContentBottom(doc, notes) {
+  const { format, layout, lines } = measureDocument(doc);
+  let y = layout.textY;
+
+  lines.forEach((line) => {
+    if (line.paragraphBreak) {
+      y += Math.max(0, Number(doc.paragraphGap || 0));
+    } else {
+      y += layout.lineHeight;
+    }
+  });
+
+  const textBottom = y;
+  const notesBottom = notes.length
+    ? Math.max(...notes.map((note) => note.y + measureNoteBox(note).height + 34))
+    : 0;
+
+  return clamp(
+    Math.max(textBottom, notesBottom, layout.headerY + 80),
+    layout.page.y + 280,
+    format.height
+  );
+}
+
+function getExportCrop(doc, notes) {
+  const format = FORMATS[doc.format];
+  const layout = layoutFor(format, doc.lineGap);
+  const hideFrame = doc.hideKindleFrame !== false;
+  const cropToContent = doc.cropToContent !== false;
+
+  const cropX = hideFrame ? layout.page.x : 0;
+  const cropY = hideFrame ? layout.page.y : 0;
+  const cropW = hideFrame ? layout.page.w : format.width;
+
+  const fullBottom = hideFrame ? layout.page.y + layout.page.h : format.height;
+  const contentBottom = getContentBottom(doc, notes) + 96;
+  const cropBottom = cropToContent ? Math.min(contentBottom, fullBottom) : fullBottom;
+
+  const cropH = clamp(cropBottom - cropY, 360, fullBottom - cropY);
+
+  return {
+    x: Math.round(cropX),
+    y: Math.round(cropY),
+    w: Math.round(cropW),
+    h: Math.round(cropH),
+  };
+}
+
 async function exportCanvas(doc, notes) {
   if (document.fonts?.ready) {
     try {
@@ -1005,12 +1061,23 @@ async function exportCanvas(doc, notes) {
   }
 
   const format = FORMATS[doc.format];
-  const canvas = document.createElement("canvas");
-  canvas.width = format.width;
-  canvas.height = format.height;
-  const ctx = canvas.getContext("2d");
+  const fullCanvas = document.createElement("canvas");
+  fullCanvas.width = format.width;
+  fullCanvas.height = format.height;
+  const fullCtx = fullCanvas.getContext("2d");
 
-  drawScene(ctx, doc, notes, { renderNotes: true });
+  drawScene(fullCtx, doc, notes, { renderNotes: true });
+
+  let outputCanvas = fullCanvas;
+
+  if (doc.cropToContent !== false || doc.hideKindleFrame !== false) {
+    const crop = getExportCrop(doc, notes);
+    outputCanvas = document.createElement("canvas");
+    outputCanvas.width = crop.w;
+    outputCanvas.height = crop.h;
+    const outputCtx = outputCanvas.getContext("2d");
+    outputCtx.drawImage(fullCanvas, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
+  }
 
   const filename = `${sanitizeFilename(doc.saveTitle)}.png`;
 
@@ -1023,18 +1090,18 @@ async function exportCanvas(doc, notes) {
     link.remove();
   };
 
-  if (canvas.toBlob) {
-    canvas.toBlob((blob) => {
+  if (outputCanvas.toBlob) {
+    outputCanvas.toBlob((blob) => {
       if (blob) {
         const url = URL.createObjectURL(blob);
         downloadURL(url);
         setTimeout(() => URL.revokeObjectURL(url), 1500);
       } else {
-        downloadURL(canvas.toDataURL("image/png"));
+        downloadURL(outputCanvas.toDataURL("image/png"));
       }
     }, "image/png");
   } else {
-    downloadURL(canvas.toDataURL("image/png"));
+    downloadURL(outputCanvas.toDataURL("image/png"));
   }
 }
 
@@ -1153,6 +1220,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [previewWidth, setPreviewWidth] = useState(620);
   const [selectedGenre, setSelectedGenre] = useState("regency");
+  const [settingsLocked, setSettingsLocked] = useState(true);
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -1171,11 +1239,42 @@ export default function App() {
 
   const buildFromSpec = useCallback((raw, genreKey = selectedGenre) => {
     const parsed = parseSpec(raw, genreKey);
-    const placedNotes = autoPlaceNotes(parsed, parsed.notes);
-    setDoc(parsed);
+    const preset = getGenrePreset(genreKey);
+
+    const merged = settingsLocked
+      ? {
+          ...parsed,
+          format: doc.format || parsed.format,
+          lineGap: Number(doc.lineGap ?? parsed.lineGap),
+          paragraphGap: Number(doc.paragraphGap ?? parsed.paragraphGap ?? 0),
+          noteSize: Number(doc.noteSize ?? parsed.noteSize),
+          highlightPadding: Number(doc.highlightPadding ?? parsed.highlightPadding ?? 8),
+          cropToContent: doc.cropToContent !== false,
+          hideKindleFrame: doc.hideKindleFrame !== false,
+          pageTheme: doc.pageTheme || preset.pageTheme || parsed.pageTheme,
+          lockedNoteFont: doc.lockedNoteFont || preset.noteFont,
+          lockedNoteColor: doc.lockedNoteColor || preset.noteColor,
+          lockedShimmer: doc.lockedShimmer || "strong",
+        }
+      : parsed;
+
+    const styledNotes = merged.notes.map((note) =>
+      settingsLocked
+        ? {
+            ...note,
+            font: merged.lockedNoteFont || note.font,
+            color: merged.lockedNoteColor || note.color,
+            shimmer: merged.lockedShimmer || note.shimmer,
+            size: Number(merged.noteSize || note.size || 30),
+          }
+        : note
+    );
+
+    const placedNotes = autoPlaceNotes(merged, styledNotes);
+    setDoc(merged);
     setNotes(placedNotes);
     setSelectedId(placedNotes[0]?.id || null);
-  }, [selectedGenre]);
+  }, [selectedGenre, settingsLocked, doc]);
 
   useEffect(() => {
     if (fontReady) buildFromSpec(DEFAULT_SPEC, "regency");
@@ -1253,13 +1352,36 @@ export default function App() {
   };
 
   const applyGenrePreset = (genreKey) => {
+    const preset = getGenrePreset(genreKey);
     setSelectedGenre(genreKey);
     setDoc((old) => ({
       ...old,
       genre: genreKey,
-      defaultHighlightColor: getGenrePreset(genreKey).highlightColor,
-      pageTheme: getGenrePreset(genreKey).pageTheme || old.pageTheme || "cream",
+      defaultHighlightColor: preset.highlightColor,
+      pageTheme: preset.pageTheme || old.pageTheme || "cream",
+      lockedNoteFont: preset.noteFont,
+      lockedNoteColor: preset.noteColor,
+      lockedShimmer: "strong",
     }));
+  };
+
+  const resetSettings = () => {
+    const preset = getGenrePreset(selectedGenre);
+    setDoc((old) => ({
+      ...old,
+      format: "story",
+      lineGap: 22,
+      paragraphGap: 0,
+      noteSize: 30,
+      highlightPadding: 8,
+      cropToContent: true,
+      hideKindleFrame: true,
+      pageTheme: preset.pageTheme || "cream",
+      lockedNoteFont: preset.noteFont,
+      lockedNoteColor: preset.noteColor,
+      lockedShimmer: "strong",
+    }));
+    setSettingsLocked(true);
   };
 
   const rebuildFromPrompt = () => buildFromSpec(specText, selectedGenre);
@@ -1317,9 +1439,56 @@ export default function App() {
               <input type="range" min="10" max="44" value={doc.lineGap} onChange={(e) => updateDoc("lineGap", Number(e.target.value))} style={{ width: "100%" }} />
             </Field>
 
+            <Field label={`Paragraph gap (${doc.paragraphGap || 0}px)`}>
+              <input type="range" min="0" max="80" value={doc.paragraphGap || 0} onChange={(e) => updateDoc("paragraphGap", Number(e.target.value))} style={{ width: "100%" }} />
+            </Field>
+
+            <Field label={`Highlight thickness (+${doc.highlightPadding ?? 8}px)`}>
+              <input type="range" min="0" max="40" value={doc.highlightPadding ?? 8} onChange={(e) => updateDoc("highlightPadding", Number(e.target.value))} style={{ width: "100%" }} />
+            </Field>
+
             <Field label={`Default note size (${doc.noteSize}px)`}>
               <input type="range" min="22" max="44" value={doc.noteSize} onChange={(e) => updateDoc("noteSize", Number(e.target.value))} style={{ width: "100%" }} />
             </Field>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label="Locked note font">
+              <select value={doc.lockedNoteFont || getGenrePreset(selectedGenre).noteFont} onChange={(e) => updateDoc("lockedNoteFont", e.target.value)} style={inputStyle}>
+                {Object.entries(NOTE_FONTS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+              </select>
+            </Field>
+
+            <Field label="Locked note color">
+              <select value={doc.lockedNoteColor || getGenrePreset(selectedGenre).noteColor} onChange={(e) => updateDoc("lockedNoteColor", e.target.value)} style={inputStyle}>
+                {Object.entries(NOTE_COLORS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+              </select>
+            </Field>
+          </div>
+
+          <Field label="Locked shimmer">
+            <select value={doc.lockedShimmer || "strong"} onChange={(e) => updateDoc("lockedShimmer", e.target.value)} style={inputStyle}>
+              {Object.entries(SHIMMER_LEVELS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+            </select>
+          </Field>
+
+          <div style={{ marginBottom: 12, padding: 10, border: "1px solid rgba(255,255,255,.1)", borderRadius: 10, background: "rgba(255,255,255,.05)", fontSize: 12, lineHeight: 1.45 }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+              <input type="checkbox" checked={settingsLocked} onChange={(e) => setSettingsLocked(e.target.checked)} />
+              <span>Lock these settings for every new passage</span>
+            </label>
+            <button onClick={resetSettings} style={{ ...toolBtn, padding: "7px 10px" }}>Reset locked settings</button>
+          </div>
+
+          <div style={{ marginBottom: 12, padding: 10, border: "1px solid rgba(255,255,255,.1)", borderRadius: 10, background: "rgba(255,255,255,.05)", fontSize: 12, lineHeight: 1.45 }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+              <input type="checkbox" checked={doc.cropToContent !== false} onChange={(e) => updateDoc("cropToContent", e.target.checked)} />
+              <span>Auto-crop export height to the text</span>
+            </label>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="checkbox" checked={doc.hideKindleFrame !== false} onChange={(e) => updateDoc("hideKindleFrame", e.target.checked)} />
+              <span>Export page only. No Kindle border.</span>
+            </label>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
@@ -1335,7 +1504,7 @@ export default function App() {
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,79,207,.10)", border: "1px solid rgba(255,79,207,.25)", fontSize: 12, lineHeight: 1.45, color: "#ffd6f3" }}>
-            Genre presets now work for Regency Romance, Dark Romance, Dark Horror Romance, and Horror. Build Screenshot will re-read your pasted block using the selected preset. The canvas preview still stays text-only, so the draggable notes are the only notes you see in preview.
+            Genre presets now work for Regency, Dark Romance, Dark Horror Romance, and Horror. Locked settings stay the same for every new passage until you reset them. Export can auto-crop and remove the Kindle border.
           </div>
 
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)", fontSize: 12, lineHeight: 1.5, color: "#efe2cf" }}>
